@@ -25,8 +25,6 @@ fn main() {
     App::new()
         // core engine plugins
         .add_plugins(DefaultPlugins)
-        // mesh-baking plugin from bevy_heightmap
-        .add_plugins(HeightMapPlugin)
         // your domain plugins
         .add_plugins(TerrainPlugin)   // loads + spawns the heightmap terrain
         .add_plugins(UnitPlugin)      // spawns & moves your pill‐units

@@ -1,0 +1,11 @@
+[package]
+name = "chasma"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matthew Dewyer"]
+description = "An RTS‐style terrain demo built with Bevy and heightmaps"
+
+[dependencies]
+bevy = "0.16"
+bevy_heightmap = "0.4.1"
+image = "0.24"

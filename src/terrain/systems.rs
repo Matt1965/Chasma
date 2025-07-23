@@ -1,16 +1,13 @@
 use bevy::prelude::*;
-use bevy::render::mesh::{Mesh, Mesh3d, Indices};
+use bevy::render::mesh::{Mesh, Indices};
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::PrimitiveTopology;
 use bevy::math::{Vec2, UVec2};
-use image::{GrayImage, imageops::crop_imm};
+use image::{GrayImage};
 use crate::heightmap_data::HeightmapData;
-use crate::terrain::components::Terrain;
-use crate::setup::MainCamera;
 
 pub const CHUNK_SIZE: Vec2 = Vec2::splat(512.0);
 pub const GRID_RES: (u32, u32) = (512, 512);
-pub const CAMERA_HEIGHT_OFFSET: f32 = 2.0;
 
 /// 1) Load your master 16 384×8 192 heightmap into a resource.
 pub fn load_heightmap_data(mut commands: Commands) {
@@ -31,54 +28,7 @@ pub fn load_heightmap_data(mut commands: Commands) {
     });
 }
 
-/// 2) Crop the master map at `origin` (world‐min of the chunk),
-///    build a 128×128‐quad mesh, and spawn it at the correct world position.
-pub fn spawn_terrain_chunk(
-    commands: &mut Commands,
-    origin: Vec2,                         // world‐min (X,Z) corner of this chunk
-    heightmap: &Res<HeightmapData>,
-    meshes: &mut Assets<Mesh>,
-    material: &Handle<StandardMaterial>,
-) -> Entity {
-    // how many pixels per world‐unit
-    let px_u_x = heightmap.resolution.x as f32 / heightmap.size.x;
-    let px_u_z = heightmap.resolution.y as f32 / heightmap.size.y;
-
-    // pixel dimensions of a 512×512‐unit chunk
-    let crop_w = (CHUNK_SIZE.x * px_u_x).round() as u32;
-    let crop_h = (CHUNK_SIZE.y * px_u_z).round() as u32;
-
-    // compute the pixel offset in the master image
-    let raw_x = (origin.x - heightmap.origin.x) * px_u_x;
-    let raw_z = (origin.y - heightmap.origin.y) * px_u_z;
-    let px = raw_x.clamp(0.0, (heightmap.resolution.x - crop_w) as f32) as u32;
-    let pz = raw_z.clamp(0.0, (heightmap.resolution.y - crop_h) as f32) as u32;
-
-    // crop and convert to GrayImage
-    let tile: GrayImage = crop_imm(&heightmap.image, px, pz, crop_w + 1, crop_h + 1)
-        .to_image();
-
-    // build the mesh from that tile
-    let mesh = build_chunk_mesh(&tile, GRID_RES, CHUNK_SIZE, heightmap.height_scale);
-    let mesh_handle = meshes.add(mesh);
-
-    // spawn at world position = origin + half‐size
-    let half = CHUNK_SIZE * 0.5;
-    let translation = Vec3::new(origin.x + half.x, 0.0, origin.y + half.y);
-
-    commands.spawn((
-        Terrain,
-        Transform::from_translation(translation),
-        GlobalTransform::default(),
-        Visibility::Visible,
-        InheritedVisibility::VISIBLE,
-        ViewVisibility::default(),
-        Mesh3d(mesh_handle),
-        MeshMaterial3d(material.clone()),
-    )).id()
-}
-
-/// 3) Build a `Mesh` from a `GrayImage` tile, mapping the full tile resolution
+/// 2) Build a `Mesh` from a `GrayImage` tile, mapping the full tile resolution
 ///    onto a GRID_RES. This ensures we sample across the entire slice, not just
 ///    the first 128 pixels.
 pub fn build_chunk_mesh(
@@ -136,19 +86,4 @@ pub fn build_chunk_mesh(
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh.insert_indices(Indices::U32(indices));
     mesh
-}
-
-pub fn camera_grounding_system(
-    heightmap: Res<HeightmapData>,
-    mut query: Query<&mut Transform, With<MainCamera>>,
-) {
-    // for each camera (usually just one)…
-    for mut tf in &mut query {
-        let x = tf.translation.x;
-        let z = tf.translation.z;
-        // sample the exact terrain height at (x,z)
-        let y = heightmap.sample_height(x, z);
-        // reset camera Y to terrain + offset
-        tf.translation.y = y + CAMERA_HEIGHT_OFFSET;
-    }
 }

@@ -5,8 +5,6 @@ use bevy::prelude::*;
 
 /// How many chunks (in each direction) around the camera to keep loaded.
 pub const CHUNK_RADIUS: i32 = 2;
-/// Size of each chunk in world‐space (512×512 units).
-pub const CHUNK_SIZE: Vec2 = Vec2::splat(512.0);
 
 /// Tracks which chunk coords are currently spawned,
 /// and what the camera’s last‐chunk was so we only schedule on boundary‐cross.
