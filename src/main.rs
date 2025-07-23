@@ -1,9 +1,5 @@
-// src/main.rs
-
 use bevy::prelude::*;
-use bevy_heightmap::HeightMapPlugin;
 
-// bring in your old .rs files
 mod setup;
 mod input;
 mod actions;
