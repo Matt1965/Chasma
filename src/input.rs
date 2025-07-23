@@ -4,7 +4,7 @@ use bevy::input::{mouse::MouseMotion, keyboard::KeyCode, ButtonInput};
 
 use crate::actions::{PlayerAction, ActionState};
 
-pub const MOVE_SPEED: f32 = 5.0;
+pub const MOVE_SPEED: f32 = 50.0;
 pub const ROTATE_SPEED: f32 = 0.2;
 
 use crate::setup::MainCamera;
@@ -61,10 +61,10 @@ pub fn camera_controller(
     // === Zoom ===
     for ev in scroll_evr.read() {
         let scroll_amount = match ev.unit {
-            MouseScrollUnit::Line => ev.y * 0.5,
-            MouseScrollUnit::Pixel => ev.y * 0.01,
+            MouseScrollUnit::Line => ev.y * 5.5,
+            MouseScrollUnit::Pixel => ev.y * 1.01,
         };
-        orbit.radius = (orbit.radius - scroll_amount).clamp(2.0, 100.0);
+        orbit.radius = (orbit.radius - scroll_amount).clamp(2.0, 1000.0);
     }
 
     // === WASD movement ===

@@ -57,7 +57,7 @@ pub fn spawn_unit(
         LocalOffset { x: local_x, y: world_pos.y, z: local_z },
         Unit {
             grounded_offset: half_h,
-            max_slope: 0.6, // ≈ 34°
+            max_slope: 0.9, // ≈ 45°
         },
         PreviousPosition(world_pos),
         MoveTo(world_pos),

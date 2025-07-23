@@ -2,6 +2,7 @@ mod plugin;
 mod systems;
 mod chunking;
 mod components;
+mod async_chunk_loader;
 
 // Re-export your plugin and label so they’re public:
 pub use plugin::TerrainPlugin;
