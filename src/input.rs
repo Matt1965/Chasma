@@ -7,7 +7,7 @@ use crate::heightmap_data::HeightmapData;
 use crate::setup::MainCamera;
 use crate::state::GameState;
 
-pub const MOVE_SPEED: f32 = 50.0;
+pub const MOVE_SPEED: f32 = 250.0;
 pub const ROTATE_SPEED: f32 = 0.2;
 
 #[derive(Component)]
@@ -87,7 +87,7 @@ pub fn camera_controller(
             MouseScrollUnit::Line  => ev.y * 1.0,
             MouseScrollUnit::Pixel => ev.y * 0.02,
         };
-        orbit.radius = (orbit.radius - amount).clamp(2.0, 200.0);
+        orbit.radius = (orbit.radius - amount).clamp(2.0, 2000.0);
     }
 
     // 6) Middle-mouse drag → yaw & pitch

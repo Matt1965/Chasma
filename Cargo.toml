@@ -8,4 +8,6 @@ description = "An RTS‐style terrain demo built with Bevy and heightmaps"
 [dependencies]
 bevy = "0.16"
 bevy_heightmap = "0.4.1"
+futures-lite = "2.6.0"
 image = "0.24"
+wgpu = "26.0.1"

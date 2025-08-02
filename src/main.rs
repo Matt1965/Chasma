@@ -16,11 +16,26 @@ use state::GameState;
 use ui::{spawn_pause_overlay, despawn_pause_overlay};
 use terrain::TerrainPlugin;
 use unit::UnitPlugin;
+use bevy::render::{RenderPlugin, settings::WgpuSettings};
 
 fn main() {
+        // Start with Bevy’s default settings…
+    let mut wgpu_settings = WgpuSettings::default();
+    // …but raise the max 2D texture size to 16K:
+    wgpu_settings.limits.max_texture_dimension_2d = 16_384;
+
     App::new()
+        .add_plugins(
+            DefaultPlugins.set(
+                RenderPlugin {
+                    // Into<RenderCreation> from WgpuSettings
+                    render_creation: wgpu_settings.into(),
+                    ..Default::default()
+                }
+            )
+        )
         // core engine plugins
-        .add_plugins(DefaultPlugins)
+        //.add_plugins(DefaultPlugins)
         // your domain plugins
         .add_plugins(TerrainPlugin)   // loads + spawns the heightmap terrain
         .add_plugins(UnitPlugin)      // spawns & moves your pill‐units
