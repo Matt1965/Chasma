@@ -43,8 +43,6 @@ pub fn load_heightmap_data(
     let resolution = UVec2::new(w, h);
     let size       = Vec2::new(w as f32, h as f32);
     let origin     = Vec2::new(-size.x * 0.5, -size.y * 0.5);
-    let chunks_x = (size.x / CHUNK_SIZE.x).round() as u32;
-    let chunks_z = (size.y / CHUNK_SIZE.y).round() as u32;
 
     // 4) Insert the resource—and *only* the CPU images
     commands.insert_resource(HeightmapData {
