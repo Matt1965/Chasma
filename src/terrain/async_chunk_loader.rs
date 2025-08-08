@@ -63,10 +63,6 @@ pub fn async_schedule_chunks(
             let raw_nz = cam_chunk_z + dz;
             let nx = raw_nx.clamp(min_x, max_x);
             let nz = raw_nz.clamp(min_z, max_z);
-            info!(
-                "SCHED: raw_chunk=({},{}) → clamped_chunk=({},{})",
-                raw_nx, raw_nz, nx, nz
-            );
             want.push((nx, nz));
         }
     }
@@ -106,7 +102,7 @@ pub fn async_schedule_chunks(
             let pz = raw_pz.clamp(0, max_pz_off) as u32;
 
             // crop & build
-            let tile: GrayImage = crop_imm(&height_image, px, pz, crop_w, crop_h).to_image();
+            let tile: GrayImage = crop_imm(&*height_image, px, pz, crop_w, crop_h).to_image();
             build_chunk_mesh(
                 &tile,
                 GRID_RES,
@@ -153,7 +149,7 @@ pub fn async_receive_chunks(
                 .saturating_sub(pz)
                 .saturating_sub(crop_h);
             let tile_color: RgbaImage = crop_imm(
-                &heightmap.color_image, px, py, crop_w, crop_h
+                &*heightmap.color_image, px, py, crop_w, crop_h
             ).to_image();
 
             // 4) upload texture

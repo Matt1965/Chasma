@@ -7,6 +7,7 @@ use bevy::math::{Vec2, UVec2};
 use image::{GrayImage};
 use crate::heightmap_data::HeightmapData;
 use image::{io::Reader as ImageReader, RgbaImage};
+use std::sync::Arc;
 
 pub const CHUNK_SIZE: Vec2 = Vec2::splat(1024.0);
 pub const GRID_RES: (u32, u32) = (512, 512);
@@ -46,8 +47,8 @@ pub fn load_heightmap_data(
 
     // 4) Insert the resource—and *only* the CPU images
     commands.insert_resource(HeightmapData {
-        height_image,
-        color_image,
+        height_image: Arc::new(height_image),
+        color_image: Arc::new(color_image),
         resolution,
         size,
         height_scale: HEIGHT_SCALE,

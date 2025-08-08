@@ -9,6 +9,7 @@ use crate::state::GameState;
 
 pub const MOVE_SPEED: f32 = 250.0;
 pub const ROTATE_SPEED: f32 = 0.2;
+pub const MAX_CAMERA_DT: f32 = 0.05; // never use a dt larger than 50ms
 
 #[derive(Component)]
 pub struct CameraOrbit {
@@ -47,7 +48,6 @@ pub fn pause_toggle_system(
     }
 }
 
-
 pub fn camera_controller(
     time:           Res<Time>,
     mouse_buttons:  Res<ButtonInput<MouseButton>>,
@@ -57,14 +57,18 @@ pub fn camera_controller(
     heightmap:      Res<HeightmapData>,
     mut query:      Query<(&mut Transform, &mut CameraOrbit), With<MainCamera>>,
 ) {
+    // 0) Clamp your delta so big hiccups don’t blow past camera logic
+    let mut dt = time.delta_secs();
+    if dt > MAX_CAMERA_DT {
+        dt = MAX_CAMERA_DT;
+    }
+
     // 1) Pull out our single camera’s Transform & orbit state
     let Ok((mut tf, mut orbit)) = query.single_mut() else { return; };
 
     // 2) Build camera-relative forward & right on XZ plane
-    //    forward = direction camera is looking horizontally
     let forward = Vec2::new(-orbit.yaw.cos(), -orbit.yaw.sin());
-    //    right = perpendicular to forward, to the camera’s right
-    let right   = Vec2::new( -forward.y, forward.x);
+    let right   = Vec2::new(-forward.y, forward.x);
 
     // 3) WASD → pan the focus in XZ relative to camera
     let mut dir = Vec2::ZERO;
@@ -73,7 +77,7 @@ pub fn camera_controller(
     if action_state.pressed(PlayerAction::MoveLeft)     { dir -= right;   }
     if action_state.pressed(PlayerAction::MoveRight)    { dir += right;   }
     if dir != Vec2::ZERO {
-        let delta = dir.normalize() * MOVE_SPEED * time.delta_secs();
+        let delta = dir.normalize() * MOVE_SPEED * dt;
         orbit.focus.x += delta.x;
         orbit.focus.z += delta.y;
     }
@@ -93,8 +97,8 @@ pub fn camera_controller(
     // 6) Middle-mouse drag → yaw & pitch
     if mouse_buttons.pressed(MouseButton::Middle) {
         for ev in motion_evr.read() {
-            orbit.yaw   += ev.delta.x * ROTATE_SPEED * time.delta_secs();
-            orbit.pitch += ev.delta.y * ROTATE_SPEED * time.delta_secs();
+            orbit.yaw   += ev.delta.x * ROTATE_SPEED * dt;
+            orbit.pitch += ev.delta.y * ROTATE_SPEED * dt;
         }
     }
     // clamp pitch so you can’t flip upside-down
@@ -103,9 +107,7 @@ pub fn camera_controller(
          std::f32::consts::FRAC_PI_2 - 0.01,
     );
 
-    // 7) Compute the spherical offset from focus:
-    //    • horizontal radius = radius * cos(pitch)
-    //    • vertical    = radius * sin(pitch)
+    // 7) Compute the spherical offset from focus
     let xz_radius = orbit.radius * orbit.pitch.cos();
     let offset = Vec3::new(
         xz_radius * orbit.yaw.cos(),

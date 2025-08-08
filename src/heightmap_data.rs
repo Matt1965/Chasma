@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 use bevy::math::{Vec2, UVec2};
 use image::{GrayImage, RgbaImage};
+use std::sync::Arc;
 
 /// Holds your heightmap + color map + size/origin metadata.
 /// Both images live entirely on the CPU; shipping to GPU happens
@@ -10,9 +11,9 @@ use image::{GrayImage, RgbaImage};
 #[derive(Resource)]
 pub struct HeightmapData {
     /// Grayscale heightmap (0–255 per pixel).
-    pub height_image: GrayImage,
+    pub height_image: Arc<GrayImage>,
     /// RGBA color map (full-world).
-    pub color_image:  RgbaImage,
+    pub color_image:  Arc<RgbaImage>,
     /// Pixel resolution of both images (width, height).
     pub resolution:   UVec2,
     /// World-space size covered by the map in X (width) and Z (depth).
