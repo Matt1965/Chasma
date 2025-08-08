@@ -117,5 +117,12 @@ pub fn camera_controller(
 
     // 8) Place camera at focus + offset, and look back at focus
     tf.translation = orbit.focus + offset;
+
+    // 9) Prevent camera going below terrain at its new x,z
+    let terrain_y = heightmap.sample_height(tf.translation.x, tf.translation.z);
+    if tf.translation.y < terrain_y + 2.5 {
+        // 0.5 is a small cushion so camera isn't flush into the ground
+        tf.translation.y = terrain_y + 2.5;
+    }    
     tf.look_at(orbit.focus, Vec3::Y);
 }

@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::window::{Window, WindowPlugin};
 
 mod setup;
 mod input;
@@ -26,16 +27,23 @@ fn main() {
 
     App::new()
         .add_plugins(
-            DefaultPlugins.set(
-                RenderPlugin {
-                    // Into<RenderCreation> from WgpuSettings
+            DefaultPlugins
+                // → override the RenderPlugin to inject our WgpuSettings
+                .set(RenderPlugin {
                     render_creation: wgpu_settings.into(),
                     ..Default::default()
-                }
-            )
+                })
+                // → override the WindowPlugin to set our window title & size
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Chasma".to_string(),
+                        resolution: (1920., 1080.).into(),
+                        ..default() // fill in the rest from `Window::default()`
+                    }),
+                    ..default()    // fill in exit_condition, close_when_requested, etc.
+                })
         )
         // core engine plugins
-        //.add_plugins(DefaultPlugins)
         // your domain plugins
         .add_plugins(TerrainPlugin)   // loads + spawns the heightmap terrain
         .add_plugins(UnitPlugin)      // spawns & moves your pill‐units

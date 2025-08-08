@@ -10,8 +10,8 @@ use image::{io::Reader as ImageReader, RgbaImage};
 use std::sync::Arc;
 
 pub const CHUNK_SIZE: Vec2 = Vec2::splat(1024.0);
-pub const GRID_RES: (u32, u32) = (512, 512);
-pub const HEIGHT_SCALE: f32 = 1000.0;
+pub const GRID_RES: (u32, u32) = (256, 256);
+pub const HEIGHT_SCALE: f32 = 500.0;
 
 /// Startup system: load the full 16 K×16 K maps into CPU RAM only.
 pub fn load_heightmap_data(
