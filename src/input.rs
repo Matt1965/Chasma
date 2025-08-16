@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::input::{mouse::MouseMotion, keyboard::KeyCode, ButtonInput};
 
 use crate::actions::{PlayerAction, ActionState};
-use crate::heightmap_data::HeightmapData;
+use crate::heightmap_data::{HeightmapData, HeightTileCache, sample_height};
 use crate::setup::MainCamera;
 use crate::state::GameState;
 
@@ -19,8 +19,6 @@ pub struct CameraOrbit {
     pub pitch: f32,
 }
 
-
-
 pub fn input_mapping_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut action_state: ResMut<ActionState>,
@@ -30,7 +28,6 @@ pub fn input_mapping_system(
     action_state.set(PlayerAction::MoveLeft, keys.pressed(KeyCode::KeyA));
     action_state.set(PlayerAction::MoveRight, keys.pressed(KeyCode::KeyD));
 }
-
 
 pub fn pause_toggle_system(
     keys: Res<ButtonInput<KeyCode>>,
@@ -49,65 +46,65 @@ pub fn pause_toggle_system(
 }
 
 pub fn camera_controller(
-    time:           Res<Time>,
-    mouse_buttons:  Res<ButtonInput<MouseButton>>,
+    time: Res<Time>,
+    mouse_buttons: Res<ButtonInput<MouseButton>>,
     mut motion_evr: EventReader<MouseMotion>,
-    mut scroll_evr:  EventReader<MouseWheel>,
-    action_state:   Res<ActionState>,
-    heightmap:      Res<HeightmapData>,
-    mut query:      Query<(&mut Transform, &mut CameraOrbit), With<MainCamera>>,
+    mut scroll_evr: EventReader<MouseWheel>,
+    action_state: Res<ActionState>,
+    heightmap: Res<HeightmapData>,
+    mut cache: ResMut<HeightTileCache>,
+    mut query: Query<(&mut Transform, &mut CameraOrbit), With<MainCamera>>,
 ) {
-    // 0) Clamp your delta so big hiccups don’t blow past camera logic
+    // 0) Clamp delta
     let mut dt = time.delta_secs();
     if dt > MAX_CAMERA_DT {
         dt = MAX_CAMERA_DT;
     }
 
-    // 1) Pull out our single camera’s Transform & orbit state
     let Ok((mut tf, mut orbit)) = query.single_mut() else { return; };
 
-    // 2) Build camera-relative forward & right on XZ plane
+    // 1) Camera-relative movement
     let forward = Vec2::new(-orbit.yaw.cos(), -orbit.yaw.sin());
-    let right   = Vec2::new(-forward.y, forward.x);
+    let right = Vec2::new(-forward.y, forward.x);
 
-    // 3) WASD → pan the focus in XZ relative to camera
     let mut dir = Vec2::ZERO;
-    if action_state.pressed(PlayerAction::MoveForward)  { dir += forward; }
+    if action_state.pressed(PlayerAction::MoveForward) { dir += forward; }
     if action_state.pressed(PlayerAction::MoveBackward) { dir -= forward; }
-    if action_state.pressed(PlayerAction::MoveLeft)     { dir -= right;   }
-    if action_state.pressed(PlayerAction::MoveRight)    { dir += right;   }
+    if action_state.pressed(PlayerAction::MoveLeft) { dir -= right; }
+    if action_state.pressed(PlayerAction::MoveRight) { dir += right; }
+
     if dir != Vec2::ZERO {
         let delta = dir.normalize() * MOVE_SPEED * dt;
         orbit.focus.x += delta.x;
         orbit.focus.z += delta.y;
     }
 
-    // 4) Ground the focus to terrain height
-    orbit.focus.y = heightmap.sample_height(orbit.focus.x, orbit.focus.z);
+    // 2) Ground the focus Y
+    orbit.focus.y = sample_height(orbit.focus.x, orbit.focus.z, &heightmap, &mut cache).unwrap_or(0.0);
 
-    // 5) Scroll-wheel zoom → adjust orbit.radius
+    // 3) Zoom
     for ev in scroll_evr.read() {
         let amount = match ev.unit {
-            MouseScrollUnit::Line  => ev.y * 1.0,
+            MouseScrollUnit::Line => ev.y * 1.0,
             MouseScrollUnit::Pixel => ev.y * 0.02,
         };
         orbit.radius = (orbit.radius - amount).clamp(2.0, 2000.0);
     }
 
-    // 6) Middle-mouse drag → yaw & pitch
+    // 4) Orbit
     if mouse_buttons.pressed(MouseButton::Middle) {
         for ev in motion_evr.read() {
-            orbit.yaw   += ev.delta.x * ROTATE_SPEED * dt;
+            orbit.yaw += ev.delta.x * ROTATE_SPEED * dt;
             orbit.pitch += ev.delta.y * ROTATE_SPEED * dt;
         }
     }
-    // clamp pitch so you can’t flip upside-down
+
     orbit.pitch = orbit.pitch.clamp(
         -std::f32::consts::FRAC_PI_2 + 0.01,
-         std::f32::consts::FRAC_PI_2 - 0.01,
+        std::f32::consts::FRAC_PI_2 - 0.01,
     );
 
-    // 7) Compute the spherical offset from focus
+    // 5) Position camera
     let xz_radius = orbit.radius * orbit.pitch.cos();
     let offset = Vec3::new(
         xz_radius * orbit.yaw.cos(),
@@ -115,14 +112,13 @@ pub fn camera_controller(
         xz_radius * orbit.yaw.sin(),
     );
 
-    // 8) Place camera at focus + offset, and look back at focus
     tf.translation = orbit.focus + offset;
 
-    // 9) Prevent camera going below terrain at its new x,z
-    let terrain_y = heightmap.sample_height(tf.translation.x, tf.translation.z);
+    // 6) Prevent underground camera
+    let terrain_y = sample_height(tf.translation.x, tf.translation.z, &heightmap, &mut cache).unwrap_or(0.0);
     if tf.translation.y < terrain_y + 2.5 {
-        // 0.5 is a small cushion so camera isn't flush into the ground
         tf.translation.y = terrain_y + 2.5;
-    }    
+    }
+
     tf.look_at(orbit.focus, Vec3::Y);
 }

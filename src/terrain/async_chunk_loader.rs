@@ -1,288 +1,310 @@
 // src/terrain/async_chunk_loader.rs
-
 use std::collections::HashMap;
-use bevy::log::info;
 
 use bevy::prelude::*;
-use bevy::tasks::{AsyncComputeTaskPool, Task};
-use bevy::tasks::futures::check_ready;
-use bevy::render::mesh::{Mesh, Mesh3d};
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-use bevy::image::Image;
+use bevy::render::mesh::{Indices, Mesh, PrimitiveTopology};
+use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task};
 
-use image::{GrayImage, RgbaImage, imageops::crop_imm};
-
-use crate::terrain::chunking::{ChunkManager, CHUNK_RADIUS};
-use crate::terrain::systems::{CHUNK_SIZE, GRID_RES, build_chunk_mesh};
-use crate::terrain::components::Terrain;
-use crate::heightmap_data::HeightmapData;
+use crate::heightmap_data::{HeightTileCache, HeightmapData, Tile16};
+use crate::terrain::chunking::{
+    chunk_origin_world, chunk_world_aabb, needed_chunks_around, ChunkManager, CHUNK_RADIUS,
+};
+use crate::terrain::components::{ChunkAabb, ChunkKey, ChunkReady, Terrain};
+use crate::terrain::plugin::{COLOR_FOLDER, COLOR_PREFIX, COLOR_EXT};
 use crate::setup::MainCamera;
 
-/// Tracks all in-flight mesh-build tasks.
+// ---------- Resource to track async work ----------
 #[derive(Resource, Default)]
 pub struct AsyncChunkLoader {
     pub tasks: HashMap<(i32, i32), Task<Mesh>>,
 }
 
-/// Schedules new mesh-build tasks when the camera crosses chunk boundaries.
-/// Completely bounded, zero‐based chunk indices.
+// ---------- Systems ----------
+
+/// Schedule: figure out which chunks we need around the camera, despawn extras,
+/// and spawn async tasks for the missing ones (passing tile snapshots into tasks).
 pub fn async_schedule_chunks(
+    mut commands: Commands,
     mut loader: ResMut<AsyncChunkLoader>,
-    mut manager: ResMut<ChunkManager>,
-    heightmap: Res<HeightmapData>,
+    mut chunk_mgr: ResMut<ChunkManager>,
     cam_q: Query<&Transform, With<MainCamera>>,
+    data: Res<HeightmapData>,
+    mut cache: ResMut<HeightTileCache>,
+    asset_server: Res<AssetServer>,   
 ) {
-    // 1) Get camera in world → chunk coords
-    let tf = if let Ok(tf) = cam_q.single() { tf } else { return; };
-    let lx = tf.translation.x - heightmap.origin.x;
-    let lz = tf.translation.z - heightmap.origin.y;
-    let cam_chunk_x = (lx / CHUNK_SIZE.x).floor() as i32;
-    let cam_chunk_z = (lz / CHUNK_SIZE.y).floor() as i32;
-    let cam_chunk = (cam_chunk_x, cam_chunk_z);
+    let Ok(cam_tf) = cam_q.single() else { return };
 
-    // 2) Only when crossing boundary
-    if manager.last_cam_chunk == Some(cam_chunk) {
-        return;
+    // Desired set around camera
+    chunk_mgr.desired.clear();
+    for key in needed_chunks_around(cam_tf.translation, &data, CHUNK_RADIUS) {
+        chunk_mgr.desired.insert(key);
     }
-    manager.last_cam_chunk = Some(cam_chunk);
 
-    // 3) Compute 0-based chunk-count & bounds
-    let chunks_x = (heightmap.size.x / CHUNK_SIZE.x).round() as i32;
-    let chunks_z = (heightmap.size.y / CHUNK_SIZE.y).round() as i32;
-    let min_x = 0;
-    let max_x = chunks_x - 1;
-    let min_z = 0;
-    let max_z = chunks_z - 1;
-
-    // 4) Gather neighbors, clamp into [0..max]
-    let mut want = Vec::new();
-    for dx in -CHUNK_RADIUS..=CHUNK_RADIUS {
-        for dz in -CHUNK_RADIUS..=CHUNK_RADIUS {
-            let raw_nx = cam_chunk_x + dx;
-            let raw_nz = cam_chunk_z + dz;
-            let nx = raw_nx.clamp(min_x, max_x);
-            let nz = raw_nz.clamp(min_z, max_z);
-            want.push((nx, nz));
+    // Despawn no-longer-desired chunks + cancel pending tasks
+    let loaded_keys: Vec<(i32, i32)> = chunk_mgr.loaded.keys().copied().collect();
+    for key in loaded_keys {
+        if !chunk_mgr.desired.contains(&key) {
+            if let Some(entity) = chunk_mgr.loaded.remove(&key) {
+                commands.entity(entity).despawn();
+            }
+            loader.tasks.remove(&key);
         }
     }
-    want.sort_by_key(|&(x, z)| {
-        let dx = x - cam_chunk_x;
-        let dz = z - cam_chunk_z;
-        dx*dx + dz*dz
-    });
 
-    // 5) Spawn tasks for any missing chunk
-    let pool = AsyncComputeTaskPool::get();
-    for coord @ (cx, cz) in want {
-        if manager.loaded.contains_key(&coord) || loader.tasks.contains_key(&coord) {
+    // Spawn tasks for desired-but-missing chunks
+    let grid = chunk_mgr.grid_res;
+
+    for &(cx, cz) in &chunk_mgr.desired {
+        if chunk_mgr.loaded.contains_key(&(cx, cz)) || loader.tasks.contains_key(&(cx, cz)) {
             continue;
         }
-        // Capture minimal data
-        let height_image = heightmap.height_image.clone();
-        let resolution   = heightmap.resolution;
-        let size         = heightmap.size;
-        let height_scale = heightmap.height_scale;
 
-        let task: Task<Mesh> = pool.spawn(async move {
-            // world→pixel scaling
-            let px_u_x = resolution.x as f32 / size.x;
-            let px_u_z = resolution.y as f32 / size.y;
-            let crop_w = (CHUNK_SIZE.x * px_u_x).round() as u32;
-            let crop_h = (CHUNK_SIZE.y * px_u_z).round() as u32;
+        // Snapshot the *exact* tile this chunk needs (Arc clones the buffer, cheap).
+        let cur      = cache.fetch_tile(cx, cz);
+        let right    = cache.fetch_tile(cx + 1, cz);
+        let up       = cache.fetch_tile(cx, cz + 1);
+        let up_right = cache.fetch_tile(cx + 1, cz + 1);
 
-            // compute raw pixel offset
-            let raw_px = cx * crop_w as i32;
-            let raw_pz = cz * crop_h as i32;
+        // need at least the current tile
+        let Some(cur) = cur else { continue; };
 
-            // clamp within [0..max_offset]
-            let max_px_off = (resolution.x as i32 - crop_w as i32).max(0);
-            let max_pz_off = (resolution.y as i32 - crop_h as i32).max(0);
-            let px = raw_px.clamp(0, max_px_off) as u32;
-            let pz = raw_pz.clamp(0, max_pz_off) as u32;
-
-            // crop & build
-            let tile: GrayImage = crop_imm(&*height_image, px, pz, crop_w, crop_h).to_image();
-            build_chunk_mesh(
-                &tile,
-                GRID_RES,
-                Vec2::ZERO,
-                height_scale,
-            )
+        let data_c = data.clone();
+        let task = AsyncComputeTaskPool::get().spawn(async move {
+            build_chunk_mesh_from_tiles(cx, cz, grid, &data_c, cur, right, up, up_right)
+                .unwrap_or_else(|| debug_fallback_quad(cx, cz, &data_c))
         });
-
-        loader.tasks.insert(coord, task);
+        loader.tasks.insert((cx, cz), task);
     }
 }
 
-/// Receives completed mesh tasks and spawns the chunk entities.
+/// Receive finished meshes, spawn chunk entities with components (no Bundles).
 pub fn async_receive_chunks(
-    mut loader:    ResMut<AsyncChunkLoader>,
-    mut commands:  Commands,
-    mut meshes:    ResMut<Assets<Mesh>>,
-    mut textures:  ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    heightmap:     Res<HeightmapData>,
-    mut manager:   ResMut<ChunkManager>,
-) {
-    let mut finished = Vec::new();
-
-    for (&(cx, cz), task) in loader.tasks.iter_mut() {
-        if let Some(chunk_mesh) = check_ready(task) {
-            // 1) upload mesh
-            let mesh_handle = meshes.add(chunk_mesh);
-
-            // 2) compute same crop dims
-            let px_u_x = heightmap.resolution.x as f32 / heightmap.size.x;
-            let px_u_z = heightmap.resolution.y as f32 / heightmap.size.y;
-            let crop_w = (CHUNK_SIZE.x * px_u_x).round() as u32;
-            let crop_h = (CHUNK_SIZE.y * px_u_z).round() as u32;
-
-            // 3) clamp the color‐map crop
-            let raw_px = cx as i32 * crop_w as i32;
-            let raw_pz = cz as i32 * crop_h as i32;
-            let max_px_off = (heightmap.resolution.x as i32 - crop_w as i32).max(0);
-            let max_pz_off = (heightmap.resolution.y as i32 - crop_h as i32).max(0);
-            let px = raw_px.clamp(0, max_px_off) as u32;
-            let pz = raw_pz.clamp(0, max_pz_off) as u32;
-            let py = heightmap.resolution.y
-                .saturating_sub(pz)
-                .saturating_sub(crop_h);
-            let tile_color: RgbaImage = crop_imm(
-                &*heightmap.color_image, px, py, crop_w, crop_h
-            ).to_image();
-
-            // 4) upload texture
-            let mut bevy_img = Image::new(
-                Extent3d {
-                    width: crop_w,
-                    height: crop_h,
-                    depth_or_array_layers: 1,
-                },
-                TextureDimension::D2,
-                tile_color.into_raw(),
-                TextureFormat::Rgba8UnormSrgb,
-                RenderAssetUsages::default(),
-            );
-            bevy_img.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING;
-            let image_handle = textures.add(bevy_img);
-
-            // 5) place the chunk
-            let world_pos = Vec3::new(
-                heightmap.origin.x + cx as f32 * CHUNK_SIZE.x,
-                0.0,
-                heightmap.origin.y + cz as f32 * CHUNK_SIZE.y,
-            );
-            let mat_handle = materials.add(StandardMaterial {
-                base_color_texture: Some(image_handle),
-                perceptual_roughness: 1.0,
-                ..Default::default()
-            });
-            let ent = commands.spawn((
-                Terrain,
-                Mesh3d(mesh_handle),
-                MeshMaterial3d(mat_handle),
-                Transform::from_translation(world_pos),
-                GlobalTransform::default(),
-            )).id();
-
-            manager.loaded.insert((cx, cz), ent);
-            finished.push((cx, cz));
-        }
-    }
-
-    // 6) cleanup
-    for coord in finished {
-        loader.tasks.remove(&coord);
-    }
-}
-
-/// Once per frame, despawn any chunk whose chunk‐coords are
-/// more than `unload_radius` away from the camera’s current chunk.
-pub fn cleanup_distant_chunks(
     mut commands: Commands,
-    mut manager: ResMut<ChunkManager>,
-    cam_q: Query<&Transform, With<MainCamera>>,
-    heightmap: Res<HeightmapData>,
-) {
-    let tf = if let Ok(tf) = cam_q.single() { tf } else { return; };
-
-    // Compute camera’s current chunk indices
-    let cam_x = ((tf.translation.x - heightmap.origin.x) / CHUNK_SIZE.x)
-        .floor() as i32;
-    let cam_z = ((tf.translation.z - heightmap.origin.y) / CHUNK_SIZE.y)
-        .floor() as i32;
-
-    // Choose your unload radius (in chunks). Here, we use 1.5× the load radius.
-    let unload_radius = (CHUNK_RADIUS * 3) / 2;
-
-    // Collect any chunks that are too far
-    let mut to_remove = Vec::new();
-    for (&(cx, cz), &ent) in manager.loaded.iter() {
-        let dx = (cx - cam_x).abs();
-        let dz = (cz - cam_z).abs();
-
-        if dx > unload_radius || dz > unload_radius {
-            to_remove.push((cx, cz, ent));
-        }
-    }
-
-    // Despawn & remove from manager
-    for (cx, cz, ent) in to_remove {
-        commands.entity(ent).despawn();
-        manager.loaded.remove(&(cx, cz));
-        info!("UNLOAD: chunk=({},{})", cx, cz);
-    }
-}
-
-
-pub fn debug_spawn_corners(
-    mut commands: Commands,
+    mut loader: ResMut<AsyncChunkLoader>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    heightmap: Res<HeightmapData>,
+    mut chunk_mgr: ResMut<ChunkManager>,
+    data: Res<HeightmapData>,
+    asset_server: Res<AssetServer>, // needed for textures
 ) {
-    // 1) Build a small cube mesh
-    let cube_mesh     = Mesh::from(Cuboid::new(10.0, 1000.0, 10.0));
-    let cube_handle: Handle<Mesh> = meshes.add(cube_mesh);
-
-    // 2) Build a bright, unlit material (make it stand out!)
-    let bright_material_handle = materials.add(StandardMaterial {
-        base_color: Color::linear_rgb(1.0, 0.0, 0.0), // red
-        unlit: true,
-        ..Default::default()
+    // Drain finished tasks
+    let mut finished: Vec<((i32, i32), Mesh)> = Vec::new();
+    loader.tasks.retain(|&(cx, cz), task| match check_ready(task) {
+        None => true,
+        Some(mesh) => { finished.push(((cx, cz), mesh)); false }
     });
 
-    // 3) Compute your four corners + center in world-space
-    let p0 = Vec3::new(
-        heightmap.origin.x,
-        5.0,
-        heightmap.origin.y,
-    );
-    let p1 = Vec3::new(
-        heightmap.origin.x + heightmap.size.x,
-        5.0,
-        heightmap.origin.y,
-    );
-    let p2 = Vec3::new(
-        heightmap.origin.x,
-        5.0,
-        heightmap.origin.y + heightmap.size.y,
-    );
-    let p3 = Vec3::new(
-        heightmap.origin.x + heightmap.size.x,
-        5.0,
-        heightmap.origin.y + heightmap.size.y,
-    );
-    let center = Vec3::ZERO; // since origin is at map-center
+    // Solid fallback in case texture isn’t ready yet (meshes still render)
+    let fallback = materials.add(StandardMaterial {
+        base_color: Color::linear_rgb(0.72, 0.75, 0.72),
+        perceptual_roughness: 0.95,
+        metallic: 0.0,
+        ..default()
+    });
 
-    // 4) Spawn one cube at each position
-    for &pos in &[p0, p1, p2, p3, center] {
-        commands.spawn((
-            Mesh3d(cube_handle.clone()),
-            MeshMaterial3d(bright_material_handle.clone()),
-            Transform::from_translation(pos),
-            GlobalTransform::default(),
-        ));
+    for ((cx, cz), mesh) in finished {
+        let mesh_handle = meshes.add(mesh);
+
+        // Build Bevy-relative path: NO "assets/" prefix
+        // Your on-disk file: assets/Textures/Texture_y{cz}_x{cx}.png
+        let color_path = format!("{}/{}_y{}_x{}{}", COLOR_FOLDER, COLOR_PREFIX, cz, cx, COLOR_EXT);
+        let color_tex: Handle<Image> = asset_server.load(color_path);
+
+        // Per-chunk material with the texture; if texture not loaded yet, Bevy shows fallback color
+        let mat = materials.add(StandardMaterial {
+            base_color_texture: Some(color_tex),
+            base_color: Color::WHITE,
+            perceptual_roughness: 1.0,
+            metallic: 0.0,
+            ..default()
+        });
+
+        // World placement data (optional debug name)
+        let (min_w, max_w) = chunk_world_aabb(cx, cz, &data);
+        let origin = chunk_origin_world(cx, cz, &data);
+
+        let e = commands
+            .spawn((
+                Terrain,
+                ChunkKey::new(cx, cz),
+                ChunkReady,
+                ChunkAabb { min: min_w, max: max_w },
+                Transform::default(),
+                Visibility::Visible,
+                bevy::render::mesh::Mesh3d(mesh_handle),
+                bevy::pbr::MeshMaterial3d(mat.clone()),
+                Name::new(format!("Chunk ({cx},{cz}) @ ({:.1},{:.1})", origin.x, origin.y)),
+            ))
+            .id();
+
+        chunk_mgr.loaded.insert((cx, cz), e);
     }
+}
+
+// ---------- Mesh building helpers ----------
+
+/// Build one chunk mesh from a *single* RAW16 tile snapshot (Arc-backed).
+/// Assumes 1 tile == 1 chunk in world span.
+/// Bilinear samples RAW16 -> normalized -> world Y using HeightmapData.height_scale.
+/// Smooth normals via central differences in world space.
+fn build_chunk_mesh_from_tiles(
+    cx: i32,
+    cz: i32,
+    grid_res: UVec2,
+    data: &HeightmapData,
+    cur: Tile16,
+    right: Option<Tile16>,
+    up: Option<Tile16>,
+    up_right: Option<Tile16>,
+) -> Option<Mesh> {
+    let nx = grid_res.x.max(2) as usize;
+    let nz = grid_res.y.max(2) as usize;
+
+    let (min_w, max_w) = chunk_world_aabb(cx, cz, data);
+    let width  = max_w.x - min_w.x;
+    let depth  = max_w.y - min_w.y;
+    let step_x = width  / (nx as f32 - 1.0);
+    let step_z = depth  / (nz as f32 - 1.0);
+
+    // RAW16 normalization
+    let (rmin, rmax) = data.raw_minmax;
+    let inv_span = if rmax > rmin { 1.0 / (rmax - rmin) } else { 0.0 };
+
+    // extents in tile space
+    let tx_max = (cur.res.x.saturating_sub(1)) as i32;
+    let tz_max = (cur.res.y.saturating_sub(1)) as i32;
+
+    // Canonical sampler: on right/top edge, use neighbor’s first col/row
+    let sample_raw = |u: f32, v: f32, i: usize, j: usize| -> f32 {
+        let u = u.clamp(0.0, 1.0);
+        let v = v.clamp(0.0, 1.0);
+
+        let right_edge = i == nx - 1;
+        let top_edge   = j == nz - 1;
+
+        if right_edge && top_edge {
+            if let Some(t) = &up_right { return t.get_clamped(0, 0) as f32; }
+        } else if right_edge {
+            if let Some(t) = &right {
+                let pz = (v * tz_max as f32).round() as i32;
+                return t.get_clamped(0, pz) as f32;
+            }
+        } else if top_edge {
+            if let Some(t) = &up {
+                let px = (u * tx_max as f32).round() as i32;
+                return t.get_clamped(px, 0) as f32;
+            }
+        }
+
+        let px_f = u * tx_max as f32;
+        let pz_f = v * tz_max as f32;
+        let x0 = px_f.floor() as i32;
+        let z0 = pz_f.floor() as i32;
+        let x1 = (x0 + 1).min(tx_max);
+        let z1 = (z0 + 1).min(tz_max);
+        let dx = px_f - x0 as f32;
+        let dz = pz_f - z0 as f32;
+
+        let s00 = cur.get_clamped(x0, z0) as f32;
+        let s10 = cur.get_clamped(x1, z0) as f32;
+        let s01 = cur.get_clamped(x0, z1) as f32;
+        let s11 = cur.get_clamped(x1, z1) as f32;
+
+        let a = s00 * (1.0 - dx) + s10 * dx;
+        let b = s01 * (1.0 - dx) + s11 * dx;
+        a * (1.0 - dz) + b * dz
+    };
+
+    // Height at (u,v) -> world Y
+    let sample_h = |u: f32, v: f32, i: usize, j: usize| -> f32 {
+        let raw = sample_raw(u, v, i, j);
+        let norm = ((raw - rmin) * inv_span).clamp(0.0, 1.0);
+        norm * data.height_scale
+    };
+
+    // Build mesh
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(nx * nz);
+    let mut normals:   Vec<[f32; 3]> = Vec::with_capacity(nx * nz);
+    let mut uvs:       Vec<[f32; 2]> = Vec::with_capacity(nx * nz);
+
+    // Finite diff step in UV (exactly one vertex over)
+    let du = if nx > 1 { 1.0 / (nx as f32 - 1.0) } else { 1.0 };
+    let dv = if nz > 1 { 1.0 / (nz as f32 - 1.0) } else { 1.0 };
+
+    for j in 0..nz {
+        for i in 0..nx {
+            let u = i as f32 / (nx as f32 - 1.0);
+            let v = j as f32 / (nz as f32 - 1.0);
+
+            // World XZ at this vertex
+            let wx = min_w.x + u * width;
+            let wz = min_w.y + v * depth;
+
+            // Height at center
+            let h  = sample_h(u, v, i, j);
+
+            // Heights for gradient — use canonical sampler, which crosses tiles at edges
+            let hl = sample_h((u - du).max(0.0), v, i.saturating_sub(1), j);
+            let hr = sample_h((u + du).min(1.0), v, (i + 1).min(nx - 1), j);
+            let hd = sample_h(u, (v - dv).max(0.0), i, j.saturating_sub(1));
+            let hu = sample_h(u, (v + dv).min(1.0), i, (j + 1).min(nz - 1));
+
+            // Convert dH/du, dH/dv to world-space slopes: du→width, dv→depth
+            let dpx = (hr - hl) / (2.0 * du * width.max(f32::EPSILON));
+            let dpz = (hu - hd) / (2.0 * dv * depth.max(f32::EPSILON));
+
+            // Build attributes
+            positions.push([wx, h, wz]);
+            uvs.push([u, v]);
+
+            // dP/du = (width, dH, 0) normalized by width; we just need a normal vector ~ (-dH/dx, 1, -dH/dz)
+            let n = Vec3::new(-dpx, 1.0, -dpz).normalize_or_zero();
+            normals.push([n.x, n.y, n.z]);
+        }
+    }
+
+    // Indices
+    let mut indices: Vec<u32> = Vec::with_capacity((nx - 1) * (nz - 1) * 6);
+    for j in 0..(nz - 1) {
+        for i in 0..(nx - 1) {
+            let i0 = (j * nx + i) as u32;
+            let i1 = (j * nx + i + 1) as u32;
+            let i2 = ((j + 1) * nx + i) as u32;
+            let i3 = ((j + 1) * nx + i + 1) as u32;
+            indices.extend_from_slice(&[i0, i2, i1, i1, i2, i3]);
+        }
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+    Some(mesh)
+}
+
+
+
+/// If sampling failed (e.g., missing tile), spawn a flat debug quad.
+fn debug_fallback_quad(cx: i32, cz: i32, data: &HeightmapData) -> Mesh {
+    let (min_w, max_w) = chunk_world_aabb(cx, cz, data);
+    let sx = max_w.x - min_w.x;
+    let sz = max_w.y - min_w.y;
+
+    let positions = vec![
+        [min_w.x, 0.0, min_w.y],
+        [min_w.x + sx, 0.0, min_w.y],
+        [min_w.x, 0.0, min_w.y + sz],
+        [min_w.x + sx, 0.0, min_w.y + sz],
+    ];
+    let normals = vec![[0.0, 1.0, 0.0]; 4];
+    let uvs = vec![[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]];
+    let indices = vec![0u32, 2, 1, 1, 2, 3];
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, Default::default());
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+    mesh
 }

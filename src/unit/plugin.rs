@@ -1,59 +1,32 @@
 use bevy::prelude::*;
-use crate::terrain::load_heightmap_data;
-use crate::state::GameState;
+use bevy::ecs::schedule::common_conditions::resource_exists;
+use crate::heightmap_data::{HeightmapData, HeightTileCache};
 use crate::unit::systems::{
-    spawn_unit,
-    click_to_move,
-    move_units,
-    grounding_system,
-    record_previous_system,   // ← NEW
-    collision_system,         // ← NEW
+    spawn_unit, click_to_move, move_units, grounding_system, record_previous_system, collision_system,
 };
+use crate::state::GameState;
 
-/// Groups all your unit logic in one plugin.
 pub struct UnitPlugin;
 
 impl Plugin for UnitPlugin {
     fn build(&self, app: &mut App) {
         app
-            // must wait until the heightmap resource exists
+            // Run once when both resources are present (inserted by TerrainPlugin)
             .add_systems(
                 Startup,
-                spawn_unit.after(load_heightmap_data),
+                spawn_unit
+                    .run_if(resource_exists::<HeightmapData>)
+                    .run_if(resource_exists::<HeightTileCache>),
             )
-            // on left-click set the new MoveTo
             .add_systems(
                 Update,
-                click_to_move
-                    .run_if(in_state(GameState::Running)),
-            )
-            // record before any movement happens
-            .add_systems(
-                Update,
-                record_previous_system
-                    .before(move_units)
-                    .run_if(in_state(GameState::Running)),
-            )
-            // move in X/Z next
-            .add_systems(
-                Update,
-                move_units
-                    .after(click_to_move)
-                    .run_if(in_state(GameState::Running)),
-            )
-            // then re-ground in Y
-            .add_systems(
-                Update,
-                grounding_system
-                    .after(move_units)
-                    .run_if(in_state(GameState::Running)),
-            )
-            // finally clamp & rollback bad moves
-            .add_systems(
-                Update,
-                collision_system
-                    .after(grounding_system)
-                    .run_if(in_state(GameState::Running)),
+                (
+                    record_previous_system.before(move_units).run_if(in_state(GameState::Running)),
+                    click_to_move.run_if(in_state(GameState::Running)),
+                    move_units.after(click_to_move).run_if(in_state(GameState::Running)),
+                    grounding_system.after(move_units).run_if(in_state(GameState::Running)),
+                    collision_system.after(grounding_system).run_if(in_state(GameState::Running)),
+                ),
             );
     }
 }
