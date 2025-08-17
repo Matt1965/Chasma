@@ -57,7 +57,7 @@ impl Plugin for TerrainPlugin {
             // Core resources
             .insert_resource(hmd)
             .insert_resource(cache)
-            .insert_resource(WaterLevel(30.0)) // Default water level)
+            .insert_resource(WaterLevel(40.0)) // Default water level)
             .insert_resource(AsyncChunkLoader::default())
             // Initialize chunk manager + push CHUNK_SIZE into HeightmapData
             .add_systems(Startup, init_terrain_params)

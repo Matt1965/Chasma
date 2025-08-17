@@ -30,3 +30,11 @@ pub struct ChunkAabb {
     pub min: Vec2, // world XZ
     pub max: Vec2, // world XZ
 }
+
+/// Marks a unit that has already been grounded.
+#[derive(Component)]
+pub struct Grounded;
+
+/// Your unit marker (if not already present)
+#[derive(Component)]
+pub struct Unit;

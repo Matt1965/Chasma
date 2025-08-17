@@ -149,10 +149,6 @@ pub fn sample_height(
         return None;
     }
 
-    // Handle Gaea top-left origin if requested
-    if data.flip_v {
-        lz = data.size.y - lz;
-    }
 
     // Which tile/chunk?
     let cx = (lx / data.chunk_size.x).floor() as i32;
@@ -163,7 +159,11 @@ pub fn sample_height(
     let local_z = lz - (cz as f32 * data.chunk_size.y);
 
     // Get the RAW16 tile snapshot (Arc-backed)
-    let tile = cache.fetch_tile(cx, cz)?;
+    let tile = cache.fetch_tile(cx, cz);
+    if tile.is_none() {
+        warn!("Missing height tile at ({}, {}) for sample at ({:.1}, {:.1})", cx, cz, world_x, world_z);
+    }
+    let tile = tile?;
 
     // Normalized UV in [0,1] inside this tile
     let u = (local_x / data.chunk_size.x).clamp(0.0, 1.0);
