@@ -29,8 +29,7 @@ pub fn async_schedule_chunks(
     mut chunk_mgr: ResMut<ChunkManager>,
     cam_q: Query<&Transform, With<MainCamera>>,
     data: Res<HeightmapData>,
-    mut cache: ResMut<HeightTileCache>,
-    asset_server: Res<AssetServer>,   
+    mut cache: ResMut<HeightTileCache>, 
 ) {
     let Ok(cam_tf) = cam_q.single() else { return };
 
@@ -94,14 +93,6 @@ pub fn async_receive_chunks(
         Some(mesh) => { finished.push(((cx, cz), mesh)); false }
     });
 
-    // Solid fallback in case texture isn’t ready yet (meshes still render)
-    let fallback = materials.add(StandardMaterial {
-        base_color: Color::linear_rgb(0.72, 0.75, 0.72),
-        perceptual_roughness: 0.95,
-        metallic: 0.0,
-        ..default()
-    });
-
     for ((cx, cz), mesh) in finished {
         let mesh_handle = meshes.add(mesh);
 
@@ -163,8 +154,6 @@ fn build_chunk_mesh_from_tiles(
     let (min_w, max_w) = chunk_world_aabb(cx, cz, data);
     let width  = max_w.x - min_w.x;
     let depth  = max_w.y - min_w.y;
-    let step_x = width  / (nx as f32 - 1.0);
-    let step_z = depth  / (nz as f32 - 1.0);
 
     // RAW16 normalization
     let (rmin, rmax) = data.raw_minmax;

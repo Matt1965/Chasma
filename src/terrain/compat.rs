@@ -27,18 +27,3 @@ pub fn world_to_chunk_and_local(
         LocalOffset { x: local.x, y: 0.0, z: local.y },
     ))
 }
-
-pub fn chunk_local_to_world(coords: ChunkCoords, local: LocalOffset, data: &HeightmapData) -> Vec2 {
-    let origin = chunk_origin_world(coords.x, coords.z, data);
-    origin + Vec2::new(local.x, local.z)
-}
-
-pub fn sample_height_in_chunk(
-    coords: ChunkCoords,
-    local: LocalOffset,
-    data: &HeightmapData,
-    cache: &mut HeightTileCache,
-) -> Option<f32> {
-    let w = chunk_local_to_world(coords, local, data);
-    sample_height(w.x, w.y, data, cache)
-}
