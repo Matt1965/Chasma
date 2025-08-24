@@ -7,10 +7,10 @@ use crate::terrain::systems::{init_terrain_params, CHUNK_SIZE};
 use crate::terrain::water::{WaterLevel, spawn_water};
 
 // ---- Configure these to match your Gaea export ----
-const RAW_FOLDER: &str = "assets/Heightmaps";   // where your *.raw16 tiles live
+const RAW_FOLDER: &str = "assets/heightmaps";   // where your *.raw16 tiles live
 const FILENAME_PREFIX: &str = "Heightmap";      // -> {prefix}_y{cz}_x{cx}.raw16
 const FILENAME_EXT: &str = ".r16";              // UshortRaw16
-pub const COLOR_FOLDER: &str = "Textures";   // folder containing color tiles
+pub const COLOR_FOLDER: &str = "textures";   // folder containing color tiles
 pub const COLOR_PREFIX: &str = "Texture";               // -> {prefix}_y{cz}_x{cx}{ext}
 pub const COLOR_EXT: &str = ".png";                   // your exported color tile ext
 const TILE_RES_X: u32 = 1024;                   // pixels per tile (X)
@@ -26,7 +26,6 @@ const RAW_MAX: f32 = 65535.0;
 const TERRAIN_ORIGIN_X: f32 = 0.0;              // bottom-left world corner (X)
 const TERRAIN_ORIGIN_Z: f32 = 0.0;              // bottom-left world corner (Z)
 const HEIGHT_SCALE_METERS: f32 = 600.0;         // meters at normalized height = 1.0
-const FLIP_V: bool = true;                      // Gaea top-left -> world bottom-left
 
 pub struct TerrainPlugin;
 
@@ -45,7 +44,6 @@ impl Plugin for TerrainPlugin {
             height_scale: HEIGHT_SCALE_METERS,
             chunk_size: CHUNK_SIZE, // reaffirmed in init_terrain_params
             raw_minmax: (RAW_MIN, RAW_MAX),
-            flip_v: FLIP_V,
         };
 
         // RAW16 tile cache

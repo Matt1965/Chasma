@@ -9,6 +9,7 @@ mod ui;
 mod heightmap_data;
 mod terrain;
 mod unit;
+mod props;
 
 // re-export the bits we actually need in main
 use actions::ActionState;
@@ -17,6 +18,7 @@ use state::GameState;
 use ui::{spawn_pause_overlay, despawn_pause_overlay};
 use terrain::TerrainPlugin;
 use unit::UnitPlugin;
+use props::PropsStackPlugin;
 use bevy::render::{RenderPlugin, settings::WgpuSettings};
 
 fn main() {
@@ -47,6 +49,7 @@ fn main() {
         // your domain plugins
         .add_plugins(TerrainPlugin)   // loads + spawns the heightmap terrain
         .add_plugins(UnitPlugin)      // spawns & moves your pill‐units
+        .add_plugins(PropsStackPlugin)
         // legacy input/tracking systems left in place:
         //
         // init resources & game-state

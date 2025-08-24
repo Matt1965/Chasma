@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use crate::heightmap_data::{HeightmapData, HeightTileCache, sample_height};
-use crate::terrain::chunking::{chunk_origin_world, world_to_chunk_local};
+use crate::heightmap_data::HeightmapData;
+use crate::terrain::chunking::world_to_chunk_local;
 
 #[derive(Component, Copy, Clone, Eq, PartialEq, Hash, Debug)]   // ← add Component
 pub struct ChunkCoords {

@@ -1,0 +1,18 @@
+[
+  (
+    name: "tree_pine",
+    category: Some("vegetation"),
+    render: MeshMaterial(
+      mesh: "props/meshes/tree_pine2.glb#Mesh0/Primitive0",
+      material: Some("props/meshes/tree_pine.glb#Material0"),
+    ),
+    placement: Grid(cell: 20.0, jitter: 0.25, cap: Some(200)),
+  ),
+
+  (
+    name: "grass_clump",
+    category: Some("vegetation"),
+    render: Scene(path: "props/meshes/grass_clump2.glb#Scene0"),
+    placement: Poisson(radius: 1.2, tries: 16, cap: Some(3000)),
+  ),
+]

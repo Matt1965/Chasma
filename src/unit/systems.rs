@@ -96,8 +96,6 @@ pub fn grounding_system(
         let z = transform.translation.z;
         if let Some(y) = sample_height(x, z, &heightmap, &mut cache) {
             transform.translation.y = y + grounded.offset;
-        } else {
-            info!("Missing height tile at: ({}, {})", x, z);
         }
     }
 }

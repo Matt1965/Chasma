@@ -21,8 +21,6 @@ pub struct HeightmapData {
     /// Normalization range for RAW values (before scaling)
     /// If you exported "Use Full Range", leave as (0.0, 65535.0).
     pub raw_minmax: (f32, f32),
-    /// If true, flip V so that Gaea's top-left origin maps to world bottom-left.
-    pub flip_v: bool,
 }
 
 impl Default for HeightmapData {
@@ -33,7 +31,6 @@ impl Default for HeightmapData {
             height_scale: 1.0,
             chunk_size: Vec2::splat(1.0),
             raw_minmax: (0.0, 65535.0),
-            flip_v: true,
         }
     }
 }
@@ -142,7 +139,7 @@ pub fn sample_height(
 ) -> Option<f32> {
     // Convert to local terrain coords
     let lx = world_x - data.origin.x;
-    let mut lz = world_z - data.origin.y;
+    let lz = world_z - data.origin.y;
 
     // Out of bounds -> None
     if lx < 0.0 || lz < 0.0 || lx >= data.size.x || lz >= data.size.y {

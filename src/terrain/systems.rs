@@ -19,10 +19,3 @@ pub fn init_terrain_params(mut commands: Commands, mut hmd: ResMut<HeightmapData
     // Insert/replace the chunk manager with the vertex grid we want.
     commands.insert_resource(ChunkManager::new(GRID_RES));
 }
-
-/// Optional: if you ever want to change CHUNK_SIZE or GRID_RES at runtime,
-/// call this to reapply the constants to the resources.
-pub fn reapply_terrain_params(mut hmd: ResMut<HeightmapData>, mut cm: ResMut<ChunkManager>) {
-    hmd.chunk_size = CHUNK_SIZE;
-    cm.grid_res = GRID_RES;
-}
