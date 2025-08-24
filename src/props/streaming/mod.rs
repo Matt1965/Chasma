@@ -10,7 +10,7 @@ use crate::props::registry::RenderRef;
 pub mod chunk_bind;
 pub mod lod;
 
-pub use chunk_bind::{spawn_prop_instance, despawn_chunk_props};
+pub use chunk_bind::{spawn_prop_instance};
 pub use lod::{LodGroup, update_lod_groups};
 
 /// Tag on each spawned prop instance (stable identity).

@@ -194,37 +194,6 @@ impl Default for CommonFilters {
     }
 }
 
-/// Check basic filters using available samplers.
-/// `biome_at` is optional; pass `None` to ignore biome filtering.
-pub fn passes_common_filters(
-    probe: &PlacementProbe,
-    height: f32,
-    samplers: (&dyn SlopeSampler,),
-    filters: &CommonFilters,
-    biome_at: Option<impl Fn(f32, f32) -> BiomeMask>,
-) -> bool {
-    // Altitude
-    if let Some(min_h) = filters.altitude_min { if height < min_h { return false; } }
-    if let Some(max_h) = filters.altitude_max { if height > max_h { return false; } }
-
-    // Slope
-    if filters.slope_min_deg.is_some() || filters.slope_max_deg.is_some() {
-        if let Some(slope) = samplers.0.slope_deg(probe.x, probe.z) {
-            if let Some(min_s) = filters.slope_min_deg { if slope < min_s { return false; } }
-            if let Some(max_s) = filters.slope_max_deg { if slope > max_s { return false; } }
-        }
-    }
-
-    // Biome
-    if let Some(mask_req) = filters.biome_mask_any {
-        if let Some(f) = biome_at {
-            if !mask_req.any(f(probe.x, probe.z)) { return false; }
-        }
-    }
-
-    true
-}
-
 /// Apply height snap + optional normal alignment to produce a final transform.
 pub fn finalize_transform(
     probe: &PlacementProbe,

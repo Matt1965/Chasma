@@ -12,6 +12,8 @@ use crate::terrain::chunking::{
 use crate::terrain::components::{ChunkAabb, ChunkKey, ChunkReady, Terrain};
 use crate::terrain::plugin::{COLOR_FOLDER, COLOR_PREFIX, COLOR_EXT};
 use crate::setup::MainCamera;
+use crate::props::plugin::TerrainChunkLoaded;
+use crate::props::core::{ChunkArea, ChunkCoord};
 
 // ---------- Resource to track async work ----------
 #[derive(Resource, Default)]
@@ -84,7 +86,8 @@ pub fn async_receive_chunks(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut chunk_mgr: ResMut<ChunkManager>,
     data: Res<HeightmapData>,
-    asset_server: Res<AssetServer>, // needed for textures
+    asset_server: Res<AssetServer>,
+    mut evw_chunks_loaded: EventWriter<TerrainChunkLoaded>,     // <-- NEW
 ) {
     // Drain finished tasks
     let mut finished: Vec<((i32, i32), Mesh)> = Vec::new();
@@ -96,12 +99,11 @@ pub fn async_receive_chunks(
     for ((cx, cz), mesh) in finished {
         let mesh_handle = meshes.add(mesh);
 
-        // Build Bevy-relative path: NO "assets/" prefix
-        // Your on-disk file: assets/Textures/Texture_y{cz}_x{cx}.png
-        let color_path = format!("{}/{}_y{}_x{}{}", COLOR_FOLDER, COLOR_PREFIX, cz, cx, COLOR_EXT);
+        // Bevy path (no "assets/" prefix)
+        let color_path = format!("{}/{}_y{}_x{}{}",
+            COLOR_FOLDER, COLOR_PREFIX, cz, cx, COLOR_EXT);
         let color_tex: Handle<Image> = asset_server.load(color_path);
 
-        // Per-chunk material with the texture; if texture not loaded yet, Bevy shows fallback color
         let mat = materials.add(StandardMaterial {
             base_color_texture: Some(color_tex),
             base_color: Color::WHITE,
@@ -110,10 +112,11 @@ pub fn async_receive_chunks(
             ..default()
         });
 
-        // World placement data (optional debug name)
+        // World placement / AABB
         let (min_w, max_w) = chunk_world_aabb(cx, cz, &data);
         let origin = chunk_origin_world(cx, cz, &data);
 
+        // Spawn the terrain chunk entity
         let e = commands
             .spawn((
                 Terrain,
@@ -128,7 +131,23 @@ pub fn async_receive_chunks(
             ))
             .id();
 
+        // Track it in your manager
         chunk_mgr.loaded.insert((cx, cz), e);
+
+        // ---- Notify props: this chunk is loaded and ready for vegetation ----
+        // Compose the ChunkArea from HeightmapData (no hard-coded constants).
+        let min_x = data.origin.x + (cx as f32) * data.chunk_size.x;
+        let min_z = data.origin.y + (cz as f32) * data.chunk_size.y;
+        let max_x = min_x + data.chunk_size.x;
+        let max_z = min_z + data.chunk_size.y;
+
+        let area = ChunkArea {
+            coord: ChunkCoord { x: cx, z: cz },
+            min_xz: Vec2::new(min_x, min_z),
+            max_xz: Vec2::new(max_x, max_z),
+        };
+
+        evw_chunks_loaded.send(TerrainChunkLoaded(area));
     }
 }
 

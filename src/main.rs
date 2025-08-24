@@ -47,10 +47,9 @@ fn main() {
         )
         // core engine plugins
         // your domain plugins
+        .add_plugins(PropsStackPlugin)
         .add_plugins(TerrainPlugin)   // loads + spawns the heightmap terrain
         .add_plugins(UnitPlugin)      // spawns & moves your pill‐units
-        .add_plugins(PropsStackPlugin)
-        // legacy input/tracking systems left in place:
         //
         // init resources & game-state
         .init_resource::<ActionState>()

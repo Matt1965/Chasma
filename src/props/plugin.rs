@@ -49,7 +49,7 @@ impl Plugin for PropsPlugin {
             .init_resource::<PropsRegistryHandle>()
             // derive WorldSeed from PropsSettings in a separate startup system
             .add_systems(Startup, init_world_seed_from_settings)
-            .add_systems(Update, (log_chunk_events))
+            .add_systems(Update, log_chunk_events)
             // chunk events that terrain should emit
             .add_event::<TerrainChunkLoaded>()
             .add_event::<TerrainChunkUnloaded>()
