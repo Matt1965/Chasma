@@ -12,7 +12,7 @@ use crate::terrain::chunking::{
 use crate::terrain::components::{ChunkAabb, ChunkKey, ChunkReady, Terrain};
 use crate::terrain::plugin::{COLOR_FOLDER, COLOR_PREFIX, COLOR_EXT};
 use crate::setup::MainCamera;
-use crate::props::plugin::TerrainChunkLoaded;
+use crate::props::plugin::{TerrainChunkLoaded, TerrainChunkUnloaded};
 use crate::props::core::{ChunkArea, ChunkCoord};
 
 // ---------- Resource to track async work ----------
@@ -32,6 +32,7 @@ pub fn async_schedule_chunks(
     cam_q: Query<&Transform, With<MainCamera>>,
     data: Res<HeightmapData>,
     mut cache: ResMut<HeightTileCache>, 
+    mut ev_unloaded: EventWriter<TerrainChunkUnloaded>,
 ) {
     let Ok(cam_tf) = cam_q.single() else { return };
 
@@ -43,12 +44,15 @@ pub fn async_schedule_chunks(
 
     // Despawn no-longer-desired chunks + cancel pending tasks
     let loaded_keys: Vec<(i32, i32)> = chunk_mgr.loaded.keys().copied().collect();
-    for key in loaded_keys {
-        if !chunk_mgr.desired.contains(&key) {
-            if let Some(entity) = chunk_mgr.loaded.remove(&key) {
+    for (cx, cz) in loaded_keys {
+        if !chunk_mgr.desired.contains(&(cx, cz)) {
+            if let Some(entity) = chunk_mgr.loaded.remove(&(cx, cz)) {
+                // notify props first
+                ev_unloaded.write(TerrainChunkUnloaded(ChunkCoord { x: cx, z: cz }));
                 commands.entity(entity).despawn();
+                info!("terrain: UNLOAD ({}, {}) -> sent TerrainChunkUnloaded", cx, cz);
             }
-            loader.tasks.remove(&key);
+            loader.tasks.remove(&(cx, cz));
         }
     }
 
@@ -147,7 +151,7 @@ pub fn async_receive_chunks(
             max_xz: Vec2::new(max_x, max_z),
         };
 
-        evw_chunks_loaded.send(TerrainChunkLoaded(area));
+        evw_chunks_loaded.write(TerrainChunkLoaded(area));
     }
 }
 

@@ -5,7 +5,9 @@ use bevy::prelude::*;
 use crate::props::core::{PropId, ChunkCoord};
 use crate::props::plugin::TerrainChunkUnloaded;
 use crate::props::registry::RenderRef;
-use super::{PropInstance, PropChunkTag, spawn_render_ref};
+use super::components::PropChunkTag;
+use super::systems::spawn_render_ref;
+use super::super::state::PropInstance;
 
 /// Spawn a single prop instance, tag it with stable identity + chunk tag, and return the root.
 pub fn spawn_prop_instance(

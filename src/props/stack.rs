@@ -1,7 +1,7 @@
 // src/props/stack.rs
 use bevy::prelude::*;
 use crate::props::plugin::PropsPlugin;
-use crate::props::streaming::StreamingPlugin;
+use crate::props::streaming::plugin::StreamingPlugin;
 use crate::props::vegetation::plugin::VegetationPlugin;
 
 pub struct PropsStackPlugin;

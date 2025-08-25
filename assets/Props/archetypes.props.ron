@@ -6,6 +6,13 @@
       mesh: "props/meshes/tree_pine2.glb#Mesh0/Primitive0",
       material: Some("props/meshes/tree_pine.glb#Material0"),
     ),
+      filters: (
+      altitude_min: Some(40.0),
+      altitude_max: Some(70.0),
+      slope_min_deg: None,
+      slope_max_deg: None,
+      biome_mask_any: None,
+    ),
     placement: Grid(cell: 20.0, jitter: 0.25, cap: Some(20)),
   ),
 
@@ -13,6 +20,13 @@
     name: "grass_clump",
     category: Some("vegetation"),
     render: Scene(path: "props/meshes/grass_clump2.glb#Scene0"),
+      filters: (
+      altitude_min: Some(40.0),
+      altitude_max: Some(70.0),
+      slope_min_deg: None,
+      slope_max_deg: None,
+      biome_mask_any: None,
+    ),
     placement: Poisson(radius: 1.2, tries: 16, cap: Some(300)),
   ),
 ]

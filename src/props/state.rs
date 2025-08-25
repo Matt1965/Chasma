@@ -3,17 +3,12 @@ use bevy::prelude::*;
 use std::collections::HashMap;
 
 use crate::heightmap_data::HeightmapData; // for key_from_world()
-use crate::props::core::PropArchetypeId;
+use crate::props::core::PropId;
 
-/// Marker on every spawned prop instance.
-#[derive(Component)]
+/// Marker on every spawned prop instance (stable identity only).
+#[derive(Component, Debug, Clone, Copy)]
 pub struct PropInstance {
-    /// Unique per-instance id (choose your own scheme).
-    pub id: u64,
-    /// Which archetype this came from.
-    pub archetype: PropArchetypeId,
-    /// Chunk key this instance belongs to (cx, cz).
-    pub chunk_key: (i32, i32),
+    pub id: PropId,
 }
 
 /// Runtime index of props, bucketed by chunk key.
