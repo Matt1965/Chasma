@@ -6,5 +6,6 @@ pub mod streaming;
 pub mod vegetation;
 pub mod state;
 pub mod stack;
+pub mod queue;
 
 pub use stack::PropsStackPlugin;

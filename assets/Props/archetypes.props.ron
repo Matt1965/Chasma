@@ -13,7 +13,7 @@
       slope_max_deg: None,
       biome_mask_any: None,
     ),
-    placement: Grid(cell: 20.0, jitter: 0.25, cap: Some(20)),
+    placement: Grid(cell: 20.0, jitter: 0.25, cap: Some(200)),
   ),
 
   (
@@ -27,6 +27,6 @@
       slope_max_deg: None,
       biome_mask_any: None,
     ),
-    placement: Poisson(radius: 1.2, tries: 16, cap: Some(300)),
+    placement: Poisson(radius: 1.2, tries: 16, cap: Some(3000)),
   ),
 ]

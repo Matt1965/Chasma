@@ -4,11 +4,14 @@
 //! - Exposes chunk load/unload events (terrain can emit these)
 //! - Holds settings + world seed + registry handle
 //! - Kicks off loading the registry and logs when it's ready
+//! - Drains the shared SpawnQueue each frame
 
 use bevy::prelude::*;
 
 use super::core::{ChunkArea, ChunkCoord, WorldSeed};
 use super::registry::{PropsRegistry, PropsRegistryAssetPlugin};
+use super::queue::{SpawnQueue, SpawnQueueConfig, SpawnRequest};
+use super::streaming::spawn_prop_instance;
 
 /// Configure where the registry manifest lives and the world seed.
 #[derive(Resource, Clone)]
@@ -47,7 +50,10 @@ impl Plugin for PropsPlugin {
             // small, declarative resources
             .init_resource::<PropsSettings>()
             .init_resource::<PropsRegistryHandle>()
-            // derive WorldSeed from PropsSettings in a separate startup system
+            // shared spawn queue + config (NEW)
+            .init_resource::<SpawnQueue>()
+            .init_resource::<SpawnQueueConfig>()
+            // derive WorldSeed from PropsSettings
             .add_systems(Startup, init_world_seed_from_settings)
             .add_systems(Update, log_chunk_events)
             // chunk events that terrain should emit
@@ -55,7 +61,9 @@ impl Plugin for PropsPlugin {
             .add_event::<TerrainChunkUnloaded>()
             // registry load + monitor
             .add_systems(Startup, load_registry)
-            .add_systems(Update, monitor_registry_ready);
+            .add_systems(Update, monitor_registry_ready)
+            // drain queued spawns every frame (NEW)
+            .add_systems(Update, drain_spawn_queue);
     }
 }
 
@@ -73,7 +81,10 @@ fn load_registry(
     if handle_res.0.is_strong() { return; }
     let h: Handle<PropsRegistry> = assets.load(settings.registry_path.as_str());
     handle_res.0 = h;
-    info!("Props: loading registry from '{}', world_seed={}", settings.registry_path, settings.world_seed);
+    info!(
+        "Props: loading registry from '{}', world_seed={}",
+        settings.registry_path, settings.world_seed
+    );
 }
 
 /// Update: log once when the registry becomes available.
@@ -91,6 +102,29 @@ fn monitor_registry_ready(
 
 fn log_chunk_events(mut evr: EventReader<crate::props::plugin::TerrainChunkLoaded>) {
     for ev in evr.read() {
-        info!("Props: got TerrainChunkLoaded at ({}, {})", ev.0.coord.x, ev.0.coord.z);
+        info!(
+            "Props: got TerrainChunkLoaded at ({}, {})",
+            ev.0.coord.x, ev.0.coord.z
+        );
     }
+}
+
+/// Drain up to `max_per_frame` queued spawns and instantiate them.
+fn drain_spawn_queue(
+    mut commands: Commands,
+    mut queue: ResMut<SpawnQueue>,
+    cfg: Res<SpawnQueueConfig>,
+    assets: Res<AssetServer>,
+) {
+    if queue.items.is_empty() { return; }
+
+    let to_spawn = cfg.max_per_frame.min(queue.items.len());
+    // LIFO is fast; switch to a small ring buffer if FIFO matters later.
+    for _ in 0..to_spawn {
+        if let Some(SpawnRequest { id, chunk, render, transform }) = queue.items.pop() {
+            spawn_prop_instance(&mut commands, &assets, id, chunk, &render, transform);
+        }
+    }
+    // Optional: uncomment to watch it working
+    // info!("Props: drained {} queued spawns ({} remaining)", to_spawn, queue.items.len());
 }

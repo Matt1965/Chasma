@@ -1,4 +1,3 @@
-// src/props/vegetation/plugin.rs
 use bevy::prelude::*;
 use crate::props::core::{HeightSampler, SlopeSampler};
 use super::systems::spawn_veg_on_chunk_loaded;
@@ -22,6 +21,7 @@ impl Plugin for VegetationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FlatGround>()
             .add_systems(Startup, init_terrain_height_sampler)
+            // when registry is ready, start listening for chunk-load events and enqueue spawns
             .add_systems(Update, spawn_veg_on_chunk_loaded.run_if(registry_ready));
     }
 }
