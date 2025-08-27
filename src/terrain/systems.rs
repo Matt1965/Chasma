@@ -11,6 +11,11 @@ pub const GRID_RES: UVec2 = UVec2::new(65, 65);
 /// World-space size of one chunk (X,Z).
 pub const CHUNK_SIZE: Vec2 = Vec2::new(256.0, 256.0);
 
+pub fn init_terrain_params(mut commands: Commands, mut hmd: ResMut<HeightmapData>) {
+    hmd.chunk_size = CHUNK_SIZE;
+    commands.insert_resource(ChunkManager::new());
+}
+
 /// All the knobs that used to be `const` in plugin.rs
 #[derive(Resource, Clone)]
 pub struct TerrainConfig {
@@ -93,11 +98,4 @@ pub fn init_terrain_resources(
     commands.insert_resource(cache);
     commands.insert_resource(WaterLevel(cfg.default_water_level));
     commands.insert_resource(AsyncChunkLoader::default());
-}
-
-/// Startup: create the ChunkManager with your target grid resolution,
-/// and ensure `HeightmapData.chunk_size` matches CHUNK_SIZE.
-pub fn init_terrain_params(mut commands: Commands, mut hmd: ResMut<HeightmapData>) {
-    hmd.chunk_size = CHUNK_SIZE;
-    commands.insert_resource(ChunkManager::new(GRID_RES));
 }

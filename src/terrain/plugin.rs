@@ -1,31 +1,32 @@
-// src/terrain/plugin.rs
 use bevy::prelude::*;
 
 use crate::heightmap_data::{HeightTileCache, HeightmapData};
-use crate::terrain::async_chunk_loader::{async_receive_chunks, async_schedule_chunks, AsyncChunkLoader};
+use crate::terrain::async_chunk_loader::{
+    async_receive_chunks, async_schedule_chunks, AsyncChunkLoader, IntegrationBudget, MeshBuildBudget, // ← added IntegrationBudget
+};
 use crate::terrain::systems::{init_terrain_params, CHUNK_SIZE};
-use crate::terrain::water::{WaterLevel, spawn_water};
+use crate::terrain::water::{spawn_water, WaterLevel};
 
 // ---- Configure these to match your Gaea export ----
 const RAW_FOLDER: &str = "assets/heightmaps";   // where your *.raw16 tiles live
 const FILENAME_PREFIX: &str = "Heightmap";      // -> {prefix}_y{cz}_x{cx}.raw16
 const FILENAME_EXT: &str = ".r16";              // UshortRaw16
-pub const COLOR_FOLDER: &str = "textures";   // folder containing color tiles
-pub const COLOR_PREFIX: &str = "Texture";               // -> {prefix}_y{cz}_x{cx}{ext}
-pub const COLOR_EXT: &str = ".png";                   // your exported color tile ext
-const TILE_RES_X: u32 = 1024;                   // pixels per tile (X)
-const TILE_RES_Z: u32 = 1024;                   // pixels per tile (Z)
-const TILES_X: i32 = 16;                        // number of tiles across X
-const TILES_Z: i32 = 16;                        // number of tiles across Z
+pub const COLOR_FOLDER: &str = "textures";      // folder containing color tiles
+pub const COLOR_PREFIX: &str = "Texture";       // -> {prefix}_y{cz}_x{cx}{ext}
+pub const COLOR_EXT: &str = ".png";             // your exported color tile ext
+const TILE_RES_X: u32 = 1024;
+const TILE_RES_Z: u32 = 1024;
+const TILES_X: i32 = 16;
+const TILES_Z: i32 = 16;
 
-// RAW normalization (use (0, 65535) if "Use Full Range" was enabled)
+// RAW normalization
 const RAW_MIN: f32 = 0.0;
 const RAW_MAX: f32 = 65535.0;
 
 // World mapping
-const TERRAIN_ORIGIN_X: f32 = 0.0;              // bottom-left world corner (X)
-const TERRAIN_ORIGIN_Z: f32 = 0.0;              // bottom-left world corner (Z)
-const HEIGHT_SCALE_METERS: f32 = 600.0;         // meters at normalized height = 1.0
+const TERRAIN_ORIGIN_X: f32 = 0.0;
+const TERRAIN_ORIGIN_Z: f32 = 0.0;
+const HEIGHT_SCALE_METERS: f32 = 600.0;
 
 pub struct TerrainPlugin;
 
@@ -55,12 +56,14 @@ impl Plugin for TerrainPlugin {
             // Core resources
             .insert_resource(hmd)
             .insert_resource(cache)
-            .insert_resource(WaterLevel(40.0)) // Default water level)
+            .insert_resource(WaterLevel(40.0))
             .insert_resource(AsyncChunkLoader::default())
+            .insert_resource(MeshBuildBudget::default())
+            .insert_resource(IntegrationBudget::default()) // ← add the budget resource
             // Initialize chunk manager + push CHUNK_SIZE into HeightmapData
             .add_systems(Startup, init_terrain_params)
             .add_systems(Startup, spawn_water)
-            // Streaming pipeline
+            // Streaming pipeline (unchanged order; budget is enforced in async_receive_chunks)
             .add_systems(Update, (async_schedule_chunks, async_receive_chunks).chain());
     }
 }

@@ -4,31 +4,29 @@ use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use crate::heightmap_data::HeightmapData;
+use crate::terrain::lod::LodLevel;
 
-/// How many chunks around the focus center to keep loaded.
-/// (Total diameter = 2*R + 1)
+/// How many chunks around the focus center to keep
 pub const CHUNK_RADIUS: i32 = 2;
 
-/// Tracks what chunks are spawned and their entities.
+/// Tracks what chunks are spawned and their entities (with LoD).
 #[derive(Resource, Default)]
 pub struct ChunkManager {
-    /// Chunk entity by (cx, cz)
-    pub loaded: HashMap<(i32, i32), Entity>,
-    /// Set of chunks that should exist (desired), cleared/filled each frame by scheduler
-    pub desired: HashSet<(i32, i32)>,
-    /// Mesh vertex grid resolution per chunk (X,Z)
-    pub grid_res: UVec2,
+    /// Chunk entity and its LoD by (cx, cz)
+    pub loaded: HashMap<(i32, i32), (Entity, LodLevel)>,
+    /// Desired set with LoD chosen for each key, cleared each frame by scheduler
+    pub desired: HashMap<(i32, i32), LodLevel>,
 }
 
 impl ChunkManager {
-    pub fn new(grid_res: UVec2) -> Self {
+    pub fn new() -> Self {
         Self {
             loaded: HashMap::new(),
-            desired: HashSet::new(),
-            grid_res,
+            desired: HashMap::new(),
         }
     }
 }
+
 
 /// Dimensions of the chunk lattice (count of chunks in X and Z).
 #[derive(Debug, Clone, Copy)]
