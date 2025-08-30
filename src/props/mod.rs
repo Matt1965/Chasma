@@ -7,5 +7,6 @@ pub mod vegetation;
 pub mod state;
 pub mod stack;
 pub mod queue;
+pub mod instancing;
 
 pub use stack::PropsStackPlugin;

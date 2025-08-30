@@ -6,21 +6,7 @@
       mesh: "props/meshes/tree_pine2.glb#Mesh0/Primitive0",
       material: Some("props/meshes/tree_pine2.glb#Material0"),
     ),
-      filters: (
-      altitude_min: Some(40.0),
-      altitude_max: Some(70.0),
-      slope_min_deg: None,
-      slope_max_deg: None,
-      biome_mask_any: None,
-    ),
-    placement: Grid(cell: 20.0, jitter: 0.25, cap: Some(200)),
-  ),
-
-  (
-    name: "grass_clump",
-    category: Some("vegetation"),
-    render: Scene(path: "props/meshes/grass_clump2.glb#Scene0"),
-      filters: (
+    filters: (
       altitude_min: Some(40.0),
       altitude_max: Some(70.0),
       slope_min_deg: None,
@@ -29,10 +15,33 @@
     ),
     height_snap: (
       y_offset: 0.0,
-      align_to_normal: true,       // ← enable slope alignment
+      align_to_normal: false,      // trees usually keep upright
       clamp_min: None,
       clamp_max: None,
     ),
-    placement: Poisson(radius: 1.2, tries: 16, cap: Some(3000)),
+    placement: Grid(cell: 20.0, jitter: 0.25, cap: Some(20)),
+  ),
+
+  (
+    name: "grass_clump",
+    category: Some("vegetation"),
+    render: MeshMaterial(
+      mesh: "props/meshes/grass_clump2.glb#Mesh0/Primitive0",
+      material: Some("props/meshes/grass_clump2.glb#Material0"),
+    ),
+    filters: (
+      altitude_min: Some(40.0),
+      altitude_max: Some(70.0),
+      slope_min_deg: None,
+      slope_max_deg: None,
+      biome_mask_any: None,
+    ),
+    height_snap: (
+      y_offset: 0.0,
+      align_to_normal: true,       // grass hugs the slope
+      clamp_min: None,
+      clamp_max: None,
+    ),
+    placement: Poisson(radius: 1.2, tries: 16, cap: Some(300)),
   ),
 ]

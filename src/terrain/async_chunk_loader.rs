@@ -2,7 +2,6 @@
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, Mesh, PrimitiveTopology};
 use bevy::tasks::{futures::check_ready, AsyncComputeTaskPool, Task};
-use std::collections::HashMap;
 
 use crate::heightmap_data::{HeightTileCache, HeightmapData, Tile16};
 use crate::props::core::{ChunkArea, ChunkCoord};
