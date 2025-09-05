@@ -6,7 +6,12 @@ use crate::props::core::{ChunkCoord, PropArchetypeId};
 
 #[derive(Resource, Default)]
 pub struct InstanceBatches {
-    pub by_key: HashMap<(ChunkCoord, PropArchetypeId), Entity>,
+    pub by_key: HashMap<(ChunkCoord, PropArchetypeId), Vec<Entity>>,
+}
+
+#[derive(Resource, Default)]
+pub struct MergeIntegrationQueue {
+    pub finished: Vec<(Entity, Mesh)>,
 }
 
 #[derive(Resource)]

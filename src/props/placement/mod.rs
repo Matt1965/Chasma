@@ -10,6 +10,7 @@ use std::sync::Arc;
 mod grid;
 mod poisson;
 pub mod masks;
+pub mod runner;
 
 pub use grid::{GridPlacement};
 pub use poisson::{PoissonPlacement};

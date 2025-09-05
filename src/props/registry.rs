@@ -115,7 +115,7 @@ fn default_biome_mask() -> BiomeMask {
 
 // ---------- Runtime registry asset ----------
 
-#[derive(Asset, TypePath)]
+#[derive(Asset, TypePath, Clone)]
 pub struct PropsRegistry {
     /// Ordered list; index in this vector is the `PropArchetypeId.0`.
     pub archetypes: Vec<PropArchetypeDef>,

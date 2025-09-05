@@ -2,8 +2,7 @@
 use bevy::prelude::*;
 use std::sync::Mutex;
 
-use crate::heightmap_data::{HeightmapData, HeightTileCache, sample_height};
-use crate::props::core::{HeightSampler, SlopeSampler};
+use crate::heightmap_data::{HeightmapData, HeightTileCache, sample_height, HeightSampler, SlopeSampler};
 
 /// A `'static` resource that can answer height (and later slope) queries
 /// by reading your RAW16 tile cache.
@@ -33,8 +32,4 @@ impl HeightSampler for TerrainHeightSampler {
         let mut guard = self.cache.lock().expect("height cache mutex poisoned");
         sample_height(x, z, &self.data, &mut *guard).unwrap_or(0.0)
     }
-}
-
-impl SlopeSampler for TerrainHeightSampler {
-    // You can leave the default methods (sample_normal / slope_deg) as-is for now.
 }

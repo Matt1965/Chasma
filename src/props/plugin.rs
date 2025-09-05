@@ -1,24 +1,32 @@
-//! Props plugin wiring (glue).
-//! - Registry asset/loader
-//! - Chunk load/unload events
-//! - WorldSeed + settings
-//! - Spawn queue + **instancing** systems (router + batch rebuild + cull + cleanup)
-
 use bevy::prelude::*;
 
 use super::core::{ChunkArea, ChunkCoord, WorldSeed};
 use super::registry::{PropsRegistry, PropsRegistryAssetPlugin};
 use super::queue::{SpawnQueue, SpawnQueueConfig};
 
-use crate::props::instancing::resources::{InstanceBatches, PropsInstancingConfig};
+use crate::props::instancing::resources::{InstanceBatches, PropsInstancingConfig, MergeIntegrationQueue};
 use crate::props::instancing::systems::{
     drain_spawn_queue_into_batches,
     rebuild_dirty_batches,
-    cull_batches_by_distance,
+    poll_merge_tasks,
+    integrate_finished_merges,
     cleanup_batches_on_chunk_unloaded,
 };
+use crate::props::instancing::async_spawn::{
+    schedule_async_placement_tasks,
+    collect_placement_results,
+    PropPlacementTasks,
+};
 
-/// Configure where the registry manifest lives and the world seed.
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+pub enum PropSystemSet {
+    AsyncPlacement,
+    DrainQueue,
+    RebuildBatches,
+    MergeIntegration,
+    CleanupBatches,
+}
+
 #[derive(Resource, Clone)]
 pub struct PropsSettings {
     pub registry_path: String,
@@ -33,19 +41,17 @@ impl Default for PropsSettings {
     }
 }
 
-/// Handle to the loaded PropsRegistry asset.
 #[derive(Resource, Default)]
 pub struct PropsRegistryHandle(pub Handle<PropsRegistry>);
 
-/// Fired by terrain when a chunk becomes active in the world.
 #[derive(Event, Clone, Copy)]
 pub struct TerrainChunkLoaded(pub ChunkArea);
 
-/// Fired by terrain when a chunk is removed/unloaded.
 #[derive(Event, Clone, Copy)]
 pub struct TerrainChunkUnloaded(pub ChunkCoord);
 
 pub struct PropsPlugin;
+
 impl Plugin for PropsPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PropsRegistryAssetPlugin)
@@ -55,38 +61,60 @@ impl Plugin for PropsPlugin {
             .init_resource::<SpawnQueueConfig>()
             .init_resource::<InstanceBatches>()
             .init_resource::<PropsInstancingConfig>()
-            .add_systems(Startup, (init_world_seed_from_settings, load_registry))
-            .add_systems(Update, (monitor_registry_ready, log_chunk_events))
-
+            .init_resource::<MergeIntegrationQueue>()
+            .init_resource::<PropPlacementTasks>()
             .add_event::<TerrainChunkLoaded>()
             .add_event::<TerrainChunkUnloaded>()
+            .add_systems(Startup, (
+                init_world_seed_from_settings,
+                load_registry,
+            ))
 
-            // ---- instancing schedule (CPU-merge, no rebuild churn) ----
-            .add_systems(
-                Update,
-                drain_spawn_queue_into_batches, // enqueue -> batches
-            )
-            .add_systems(
-                Update,
-                rebuild_dirty_batches.after(drain_spawn_queue_into_batches),
-            )
-            .add_systems(
-                Update,
-                cull_batches_by_distance.after(rebuild_dirty_batches),
-            )
-            .add_systems(
-                Update,
-                cleanup_batches_on_chunk_unloaded.after(cull_batches_by_distance),
-            );
+            // ---------- Configure System Sets ----------
+            .configure_sets(Update, (
+                PropSystemSet::AsyncPlacement,
+                PropSystemSet::DrainQueue.after(PropSystemSet::AsyncPlacement),
+                PropSystemSet::RebuildBatches.after(PropSystemSet::DrainQueue),
+                PropSystemSet::MergeIntegration.after(PropSystemSet::RebuildBatches),
+                PropSystemSet::CleanupBatches.after(PropSystemSet::MergeIntegration),
+            ))
+
+            // ---------- Registry / Logging ----------
+            .add_systems(Update, (
+                monitor_registry_ready,
+                log_chunk_events,
+            ))
+
+            // ---------- Async Placement ----------
+            .add_systems(Update, (
+                schedule_async_placement_tasks
+                    .run_if(registry_ready)
+                    .in_set(PropSystemSet::AsyncPlacement),
+                collect_placement_results
+                    .run_if(registry_ready)
+                    .in_set(PropSystemSet::AsyncPlacement),
+            ))
+
+            // ---------- Instancing pipeline ----------
+            .add_systems(Update, drain_spawn_queue_into_batches.in_set(PropSystemSet::DrainQueue))
+            .add_systems(Update, rebuild_dirty_batches.in_set(PropSystemSet::RebuildBatches))
+            .add_systems(Update, poll_merge_tasks.in_set(PropSystemSet::MergeIntegration))
+            .add_systems(Update, integrate_finished_merges.in_set(PropSystemSet::MergeIntegration))
+            .add_systems(Update, cleanup_batches_on_chunk_unloaded.in_set(PropSystemSet::CleanupBatches));
     }
 }
 
-/// Startup: insert WorldSeed based on PropsSettings.
+fn registry_ready(
+    handle: Res<PropsRegistryHandle>,
+    regs: Res<Assets<PropsRegistry>>,
+) -> bool {
+    regs.get(&handle.0).is_some()
+}
+
 fn init_world_seed_from_settings(mut commands: Commands, settings: Res<PropsSettings>) {
     commands.insert_resource(WorldSeed(settings.world_seed));
 }
 
-/// Startup: request loading the registry manifest, store handle.
 fn load_registry(
     mut handle_res: ResMut<PropsRegistryHandle>,
     settings: Res<PropsSettings>,
@@ -101,7 +129,6 @@ fn load_registry(
     );
 }
 
-/// Update: log once when the registry becomes available.
 fn monitor_registry_ready(
     handle_res: Res<PropsRegistryHandle>,
     registries: Res<Assets<PropsRegistry>>,
@@ -114,7 +141,7 @@ fn monitor_registry_ready(
     }
 }
 
-fn log_chunk_events(mut evr: EventReader<crate::props::plugin::TerrainChunkLoaded>) {
+fn log_chunk_events(mut evr: EventReader<TerrainChunkLoaded>) {
     for ev in evr.read() {
         info!(
             "Props: got TerrainChunkLoaded at ({}, {})",

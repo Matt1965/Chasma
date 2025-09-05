@@ -4,6 +4,7 @@
 
 use bevy::prelude::*; // Vec2, Vec3, Quat
 use serde::{Deserialize, Serialize}; // for registry (de)serialization
+use crate::heightmap_data::{HeightSampler, SlopeSampler};
 
 // ---------- World, chunks, ids ----------
 
@@ -135,22 +136,6 @@ pub struct PlacementResult {
     pub translation: Vec3,
     pub rotation: Quat,
     pub scale: Vec3,
-}
-
-// ---------- Traits: sampling, placement, nav export ----------
-
-/// Terrain height sampler (required).
-pub trait HeightSampler: Send + Sync + 'static {
-    /// Returns ground height (Y) at world XZ.
-    fn sample_height(&self, x: f32, z: f32) -> f32;
-}
-
-/// Optional terrain normal/slope sampling.
-pub trait SlopeSampler: Send + Sync + 'static {
-    /// Returns surface normal (unit) at world XZ, if available.
-    fn sample_normal(&self, x: f32, z: f32) -> Option<Vec3> { let _ = (x, z); None }
-    /// Returns slope in degrees at world XZ, if available.
-    fn slope_deg(&self, x: f32, z: f32) -> Option<f32> { let _ = (x, z); None }
 }
 
 /// Strategy that deterministically produces candidate placements inside a chunk.

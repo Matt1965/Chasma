@@ -7,5 +7,6 @@
 pub mod components;
 pub mod resources;
 pub mod systems;
+pub mod async_spawn;
 
 pub use components::{InstanceBatch, BatchStats};

@@ -1,28 +1,33 @@
 use bevy::prelude::*;
-use crate::props::core::{HeightSampler, SlopeSampler};
-use super::systems::spawn_veg_on_chunk_loaded;
-use crate::heightmap_data::{HeightmapData, HeightTileCache};
-use super::sampler::TerrainHeightSampler;
+use crate::heightmap_data::{HeightmapData, HeightTileCache, TerrainSampleAdapter};
 
 #[derive(Resource, Default)]
-pub struct FlatGround { pub y: f32 }
-impl HeightSampler for FlatGround { fn sample_height(&self, _x:f32,_z:f32)->f32 { self.y } }
-impl SlopeSampler for FlatGround {}
-
-fn registry_ready(
-    handle: Res<crate::props::plugin::PropsRegistryHandle>,
-    regs: Res<Assets<crate::props::registry::PropsRegistry>>,
-) -> bool {
-    regs.get(&handle.0).is_some()
+pub struct FlatGround {
+    pub y: f32,
 }
+
+impl crate::heightmap_data::HeightSampler for FlatGround {
+    fn sample_height(&self, _x: f32, _z: f32) -> f32 {
+        self.y
+    }
+}
+
+impl crate::heightmap_data::SlopeSampler for FlatGround {
+    fn sample_normal(&self, _x: f32, _z: f32) -> Option<Vec3> {
+        Some(Vec3::Y)
+    }
+}
+
+#[derive(Resource, Clone)]
+pub struct VegSampler(pub TerrainSampleAdapter);
 
 pub struct VegetationPlugin;
 impl Plugin for VegetationPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FlatGround>()
-            .add_systems(Startup, init_terrain_height_sampler)
-            // when registry is ready, start listening for chunk-load events and enqueue spawns
-            .add_systems(Update, spawn_veg_on_chunk_loaded.run_if(registry_ready));
+        app
+            .init_resource::<FlatGround>()
+            .add_systems(Startup, init_terrain_height_sampler);
+            // NOTE: Removed sync vegetation system to avoid CPU freeze
     }
 }
 
@@ -31,7 +36,6 @@ fn init_terrain_height_sampler(
     data: Res<HeightmapData>,
     cache: Res<HeightTileCache>,
 ) {
-    // Make a `'static` sampler from the current terrain config
-    let sampler = TerrainHeightSampler::new_from(&data, &cache);
-    commands.insert_resource(sampler);
+    let sampler = TerrainSampleAdapter::new(&data, &cache);
+    commands.insert_resource(VegSampler(sampler));
 }

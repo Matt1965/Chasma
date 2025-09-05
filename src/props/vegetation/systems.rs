@@ -1,31 +1,23 @@
 use bevy::prelude::*;
-use crate::props::core::{
-    WorldSeed, finalize_transform, make_prop_id, PropArchetypeId,
-};
+use crate::props::core::{WorldSeed, finalize_transform, make_prop_id, PropArchetypeId};
 use crate::props::placement::make_strategy;
 use crate::props::registry::PropsRegistry;
 use crate::props::plugin::{TerrainChunkLoaded, PropsRegistryHandle};
-use super::rules::height_rule_from_filters;
-use super::sampler::TerrainHeightSampler;
-use crate::props::core::HeightSampler;
-
-// NEW: enqueue instead of spawning directly
 use crate::props::queue::{SpawnQueue, SpawnRequest};
+use crate::heightmap_data::{HeightSampler, SlopeSampler};
 
-/// System: on chunk-loaded, enqueue vegetation spawns for that chunk.
-/// The queue will be drained elsewhere (shared props drainer) with a per-frame cap.
+use super::rules::height_rule_from_filters;
+use super::plugin::VegSampler;
+
 pub fn spawn_veg_on_chunk_loaded(
-    mut evr: EventReader<TerrainChunkLoaded>, 
+    mut evr: EventReader<TerrainChunkLoaded>,
     regs: Res<Assets<PropsRegistry>>,
     handle: Res<PropsRegistryHandle>,
     seed: Res<WorldSeed>,
     mut queue: ResMut<SpawnQueue>,
-    assets: Res<AssetServer>,                 // kept if your RenderRef paths need AssetServer (hashing); otherwise could be dropped
-    hs: Res<TerrainHeightSampler>,            // implements HeightSampler
-    sn: Res<TerrainHeightSampler>,            // implements SlopeSampler
+    sampler: Res<VegSampler>,
 ) {
-    let _ = assets; // silence unused if not needed
-    let Some(reg) = regs.get(&handle.0) else { return; };
+    let Some(reg) = regs.get(&handle.0) else { return };
 
     for ev in evr.read() {
         let area = &ev.0;
@@ -41,17 +33,15 @@ pub fn spawn_veg_on_chunk_loaded(
 
             let hrule = height_rule_from_filters(&arche.filters);
 
-            // gather height stats BEFORE filtering (handy for debugging)
-            let mut h_min = f32::INFINITY;
-            let mut h_max = f32::NEG_INFINITY;
-            let mut h_sum = 0.0f32;
-            let mut h_cnt = 0usize;
-
-            // filter once (avoid double-sampling)
             let mut accepted = Vec::with_capacity(probes.len());
 
+            let mut h_min = f32::INFINITY;
+            let mut h_max = f32::NEG_INFINITY;
+            let mut h_sum = 0.0;
+            let mut h_cnt = 0;
+
             for probe in probes {
-                let h = hs.sample_height(probe.x, probe.z);
+                let h = sampler.0.sample_height(probe.x, probe.z);
 
                 if h.is_finite() {
                     if h < h_min { h_min = h; }
@@ -71,26 +61,26 @@ pub fn spawn_veg_on_chunk_loaded(
                     "veg heights: chunk({},{}) arche='{}' -> min={:.2} avg={:.2} max={:.2} N={} | filter min={:?} max={:?}",
                     area.coord.x, area.coord.z, arche.name, h_min, h_avg, h_max, h_cnt, hrule.min, hrule.max
                 );
-            } else {
-                info!(
-                    "veg heights: chunk({},{}) arche='{}' -> no samples",
-                    area.coord.x, area.coord.z, arche.name
-                );
             }
 
-            // enqueue accepted spawns (actual spawning happens in the props drainer)
-            let mut enq = 0usize;
+            let mut enq = 0;
             for probe in accepted {
-                let (translation, rotation, scale) =
-                    finalize_transform(&probe, &*hs, &*sn, arche.height_snap);
-                let transform = Transform { translation, rotation, scale, ..Default::default() };
+                let (translation, rotation, scale) = finalize_transform(
+                    &probe, &sampler.0, &sampler.0, arche.height_snap,
+                );
+                let transform = Transform {
+                    translation,
+                    rotation,
+                    scale,
+                    ..Default::default()
+                };
 
                 let id = make_prop_id(area.coord, probe.local_index.0, arche_id.0);
 
                 queue.items.push(SpawnRequest {
                     id,
                     chunk: area.coord,
-                    render: arche.render.clone(),  // RenderRef should be Clone
+                    render: arche.render.clone(),
                     transform,
                 });
                 enq += 1;
