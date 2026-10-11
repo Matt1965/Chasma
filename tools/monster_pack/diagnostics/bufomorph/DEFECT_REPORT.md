@@ -1,5 +1,20 @@
 # Bufomorph runtime defects (U-0029)
 
+> **SUPERSEDED (2026-10-11) by [`INDEPENDENT_REVIEW.md`](INDEPENDENT_REVIEW.md).**
+> The conclusions below were refuted by the independent review:
+>
+> - The attack flip is **not** authored hip motion that needs upper-body masking. The shipped
+>   `BiteAttack` hip translation is exactly **100x** the FBX2glTF conversion of the same clip
+>   (27.26 vs 0.2726 m): a Blender merge unit defect. The "source FBX" probe values quoted below
+>   are Blender-imported centimetre pose values, not an independent reference. The split-bone
+>   workaround has been withdrawn from the workbook.
+> - The open mouth is **not** source-authored. Unity prefab bind TRS and FBX2glTF clip data both
+>   show a closed mouth; the Blender pose-delta retarget drops the animation-FBX rest pose
+>   (JawUpper 35 deg, JawLeft/Right 58 deg, Tongue1 21 deg offsets from SK bind).
+> - The "source" render used as evidence was blank (animation FBX files contain no mesh).
+>
+> Kept for history only. Do not act on the repair tables below.
+
 Manual reproduction on faithful `assets/units/bufomorph.glb` with catalog rotation **Y=180°, Z=90°**.
 
 ## Attack flip (beneath world)

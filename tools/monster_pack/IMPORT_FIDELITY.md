@@ -2,6 +2,13 @@
 
 Policy: see **Imported asset fidelity** in `AGENTS.md`.
 
+> **Known defects in the current "faithful export path" (2026-10-11 review):** the Blender merge
+> applies cm pose-location fcurves to a metre rig (100x joint translation on 30 of 32 pack GLBs),
+> discards the animation-FBX rest pose (Bufomorph jaw/tongue stay at the open SK bind pose), alters
+> the SK rest skeleton on the FBX2glTF fallback, and `apply_fbx2gltf_scene_root_x90` rolls an
+> already-upright model. Evidence, target process and implementation map:
+> `diagnostics/bufomorph/INDEPENDENT_REVIEW.md`. Prototype tools: `experimental/`.
+
 ## Faithful export path (default)
 
 1. **Blender merge** — `monster_export_core.export_monster_glb`: import SK + per-clip FBX, merge actions, texture bind, `export_scene.gltf` (GLB).
