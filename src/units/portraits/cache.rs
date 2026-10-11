@@ -69,6 +69,13 @@ impl UnitPortraitCache {
                 .map(|e| e.generation)
                 .unwrap_or(0);
         }
+        if let Some(pending) = self
+            .queue
+            .iter()
+            .find(|item| item.unit_id == unit_id && item.signature == signature)
+        {
+            return pending.generation;
+        }
         let generation = self
             .requested_generation
             .get(&unit_id)

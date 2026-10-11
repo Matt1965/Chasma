@@ -86,6 +86,9 @@ pub struct UnitPortraitCaptureState {
     pub camera_aligned: bool,
     /// Measured mesh bounds were observed on the actor (not fallback-only).
     pub measured_bounds_ready: bool,
+    /// Wait for GPU render after settle before reading the render target (PostUpdate runs before Render).
+    pub deferred_commit: bool,
+    pub deferred_commit_armed: bool,
 }
 
 /// Primary units that need fresh portraits (HUD writes here each frame).
@@ -96,6 +99,7 @@ pub struct UnitPortraitUiDemand {
 
 pub fn maintain_portrait_cache_requests(
     lifecycle: Res<super::lifecycle_probe::PortraitLifecycleProbe>,
+    capture: Res<UnitPortraitCaptureState>,
     demand: Res<UnitPortraitUiDemand>,
     world: Res<WorldData>,
     unit_catalog: Res<UnitCatalog>,
@@ -129,9 +133,16 @@ pub fn maintain_portrait_cache_requests(
     ) else {
         return;
     };
-    if !cache.entry_matches(unit_id, &signature) {
-        cache.request_capture(unit_id, signature);
+    if cache.entry_matches(unit_id, &signature) {
+        return;
     }
+    if capture
+        .active_request
+        .is_some_and(|request| request.unit_id == unit_id && request.signature == signature)
+    {
+        return;
+    }
+    cache.request_capture(unit_id, signature);
 }
 
 pub fn update_portrait_actor_framing(
@@ -231,7 +242,7 @@ pub fn drive_portrait_capture_pipeline(
     mut world_params: PortraitCaptureWorldParams,
     mut queries: PortraitCaptureActorQueries,
     mut lifecycle: ResMut<super::lifecycle_probe::PortraitLifecycleProbe>,
-    camera_read: Query<&Camera, With<UnitPortraitCamera>>,
+    mut portrait_cameras: Query<&mut Camera, With<UnitPortraitCamera>>,
 ) {
     if portrait_lifecycle_blocks_production(&lifecycle) {
         return;
@@ -280,6 +291,47 @@ pub fn drive_portrait_capture_pipeline(
     }
 
     let request = world_params.capture.active_request.unwrap();
+
+    if world_params.capture.deferred_commit {
+        if !world_params.capture.deferred_commit_armed {
+            world_params.capture.deferred_commit_armed = true;
+            return;
+        }
+        world_params.capture.deferred_commit = false;
+        world_params.capture.deferred_commit_armed = false;
+        let image = world_params.capture.target_image.clone().unwrap();
+        let committed = world_params.cache.commit_capture(
+            request.unit_id,
+            request.generation,
+            request.signature,
+            image,
+        );
+        if committed {
+            info!(
+                "portrait capture committed unit={:?} image={:?} primitives={}",
+                request.unit_id,
+                world_params.capture.target_image.as_ref().map(|h| h.id()),
+                count_actor_render_primitives(
+                    world_params.capture.actor_entity.unwrap(),
+                    &queries.children,
+                    &queries.mesh3d,
+                    &queries.skinned,
+                ),
+            );
+        }
+        finish_capture(
+            &mut commands,
+            &mut world_params.capture,
+            &mut world_params.equipment_index,
+            &queries.equipment_visuals,
+            committed,
+            &mut world_params.cache,
+            &mut lifecycle,
+            &mut portrait_cameras,
+        );
+        return;
+    }
+
     if world_params.world.get_unit(request.unit_id).is_none() {
         finish_capture(
             &mut commands,
@@ -289,7 +341,7 @@ pub fn drive_portrait_capture_pipeline(
             false,
             &mut world_params.cache,
             &mut lifecycle,
-            &camera_read,
+            &mut portrait_cameras,
         );
         return;
     }
@@ -306,7 +358,7 @@ pub fn drive_portrait_capture_pipeline(
             false,
             &mut world_params.cache,
             &mut lifecycle,
-            &camera_read,
+            &mut portrait_cameras,
         );
         return;
     }
@@ -370,23 +422,7 @@ pub fn drive_portrait_capture_pipeline(
         return;
     }
 
-    let image = world_params.capture.target_image.clone().unwrap();
-    let committed = world_params.cache.commit_capture(
-        request.unit_id,
-        request.generation,
-        request.signature,
-        image,
-    );
-    finish_capture(
-        &mut commands,
-        &mut world_params.capture,
-        &mut world_params.equipment_index,
-        &queries.equipment_visuals,
-        committed,
-        &mut world_params.cache,
-        &mut lifecycle,
-        &camera_read,
-    );
+    world_params.capture.deferred_commit = true;
 }
 
 fn begin_next_capture(
@@ -475,12 +511,12 @@ fn begin_next_capture(
     capture.render_settle_frames = 0;
     capture.camera_aligned = false;
     capture.measured_bounds_ready = false;
+    capture.deferred_commit = false;
+    capture.deferred_commit_armed = false;
 }
 
-/// Ends an in-flight capture. **Repair policy:** if lifecycle A/B shows post-commit clear
-/// (mesh gone while camera still targets the published `Image`), deactivate or retarget the
-/// portrait camera **before** despawning the actor here — do not rely on stage-3-style safe
-/// ordering elsewhere; production can still clear the texture with the unsafe order.
+/// Ends an in-flight capture. Portrait camera is deactivated before actor despawn so a later
+/// render cannot clear the committed [`Image`] (see lifecycle probe comparison A vs B).
 fn finish_capture(
     commands: &mut Commands,
     capture: &mut UnitPortraitCaptureState,
@@ -489,11 +525,15 @@ fn finish_capture(
     committed: bool,
     cache: &mut UnitPortraitCache,
     lifecycle: &mut super::lifecycle_probe::PortraitLifecycleProbe,
-    cameras: &Query<&Camera, With<UnitPortraitCamera>>,
+    cameras: &mut Query<&mut Camera, With<UnitPortraitCamera>>,
 ) {
     let camera_active = cameras.iter().next().is_some_and(|camera| camera.is_active);
     let published_image = capture.target_image.as_ref().map(|handle| handle.id());
     note_production_finish_capture(lifecycle, committed, published_image, camera_active);
+
+    for mut camera in cameras.iter_mut() {
+        camera.is_active = false;
+    }
 
     if let Some(actor) = capture.actor_entity {
         clear_portrait_equipment_for_actor(commands, actor, equipment_index, equipment_visuals);
@@ -513,6 +553,59 @@ fn finish_capture(
     capture.render_settle_frames = 0;
     capture.camera_aligned = false;
     capture.measured_bounds_ready = false;
+    capture.deferred_commit = false;
+    capture.deferred_commit_armed = false;
+}
+
+/// Tear down production capture without committing (lifecycle probe must not render real units).
+pub fn abort_inflight_portrait_capture(
+    commands: &mut Commands,
+    capture: &mut UnitPortraitCaptureState,
+    equipment_index: &mut UnitPortraitEquipmentIndex,
+    equipment_visuals: &Query<Entity, With<crate::units::equipment_presentation::UnitEquipmentVisual>>,
+    cache: &mut UnitPortraitCache,
+) {
+    if capture.actor_entity.is_none() && capture.active_request.is_none() {
+        return;
+    }
+    if let Some(actor) = capture.actor_entity {
+        clear_portrait_equipment_for_actor(commands, actor, equipment_index, equipment_visuals);
+        if commands.get_entity(actor).is_ok() {
+            commands.entity(actor).despawn();
+        }
+    }
+    if let Some(request) = capture.active_request {
+        cache.coalesce_queue(request.unit_id, request.signature, request.generation);
+    }
+    capture.active_request = None;
+    capture.actor_entity = None;
+    capture.target_image = None;
+    capture.warmup_frames_remaining = 0;
+    capture.render_settle_frames = 0;
+    capture.camera_aligned = false;
+    capture.measured_bounds_ready = false;
+    capture.deferred_commit = false;
+    capture.deferred_commit_armed = false;
+}
+
+pub fn suspend_portrait_capture_for_lifecycle_probe(
+    probe: Res<super::lifecycle_probe::PortraitLifecycleProbe>,
+    mut commands: Commands,
+    mut capture: ResMut<UnitPortraitCaptureState>,
+    mut equipment_index: ResMut<UnitPortraitEquipmentIndex>,
+    equipment_visuals: Query<Entity, With<crate::units::equipment_presentation::UnitEquipmentVisual>>,
+    mut cache: ResMut<UnitPortraitCache>,
+) {
+    if probe.stage == 0 {
+        return;
+    }
+    abort_inflight_portrait_capture(
+        &mut commands,
+        &mut capture,
+        &mut equipment_index,
+        &equipment_visuals,
+        &mut cache,
+    );
 }
 
 fn drive_diagnostic_live_unit(

@@ -4,8 +4,10 @@
 //!
 //! | Key | Action |
 //! |-----|--------|
-//! | **F10** | Advance stage `0 → 1 → … → 7 → 0` |
+//! | **F10** | Next probe step (cycles **production → 1 → 2 → … → 7 → production**). Each press logs the step in the console. |
 //! | **F9** | Log image ids, generation, camera, mesh, cache vs UI |
+//!
+//! **Normal portraits:** leave probe on **production** (do not press F10). After testing, press F10 until the log says `stage 0` / production again (at most eight presses).
 //!
 //! Uses production [`new_portrait_render_target_image`], left HUD [`sync_selected_unit_portrait_ui`],
 //! and [`UnitPortraitCache::commit_capture`] (not `live_target` alone).
@@ -48,6 +50,24 @@ use super::signature::portrait_signature_for_unit;
 use super::studio::{PORTRAIT_STAGE_OFFSET, new_portrait_render_target_image};
 
 pub const PORTRAIT_LIFECYCLE_STAGE_COUNT: u8 = 8;
+
+const PROBE_STAGE_LABELS: [&str; 8] = [
+    "production — normal portraits; F10 starts probe",
+    "green box live render (no cache)",
+    "publish green box to cache for selected unit",
+    "comparison A: mesh removed, camera still on",
+    "comparison A: camera off",
+    "comparison B: fresh image + publish again",
+    "comparison B: camera off, mesh still on",
+    "comparison B: mesh removed",
+];
+
+pub fn portrait_lifecycle_stage_label(stage: u8) -> &'static str {
+    PROBE_STAGE_LABELS
+        .get(stage as usize)
+        .map(|s| s.as_ref())
+        .unwrap_or("unknown")
+}
 
 #[derive(Component, Debug)]
 pub(crate) struct UnitPortraitLifecycleProbeMesh;
@@ -114,9 +134,14 @@ pub fn lifecycle_probe_hud_image(
     if probe.stage == 1 {
         return probe.probe_image.clone();
     }
-    primary
-        .and_then(|id| cache.image_for_unit(id).cloned())
-        .or_else(|| probe.probe_image.clone())
+    let cached = primary.and_then(|id| cache.image_for_unit(id).cloned());
+    if cached.is_some() {
+        return cached;
+    }
+    if primary == probe.probe_unit {
+        return probe.probe_image.clone();
+    }
+    None
 }
 
 #[cfg(feature = "dev")]
@@ -131,7 +156,16 @@ pub fn portrait_lifecycle_probe_input(
         let next = (probe.stage + 1) % PORTRAIT_LIFECYCLE_STAGE_COUNT;
         probe.stage = next;
         probe.on_stage_entered = true;
-        probe.pending_log = Some(format!("F10 -> lifecycle stage {}", probe.stage));
+        probe.pending_log = Some(format!(
+            "Portrait probe stage {} — {}",
+            probe.stage,
+            portrait_lifecycle_stage_label(probe.stage)
+        ));
+        info!(
+            "Portrait probe stage {} — {}",
+            probe.stage,
+            portrait_lifecycle_stage_label(probe.stage)
+        );
     }
 }
 

@@ -3,7 +3,7 @@
 use bevy::camera::{Camera, RenderTarget};
 use bevy::prelude::*;
 
-use crate::camera::render_layers::PORTRAIT_RENDER_LAYER;
+use crate::camera::render_layers::{PORTRAIT_RENDER_LAYER, portrait_camera_view_layers};
 
 use super::components::{UnitPortraitCamera, UnitPortraitStageRoot};
 use super::diagnostics::{
@@ -90,7 +90,7 @@ pub fn setup_unit_portrait_studio(
                 Vec3::new(0.0, PORTRAIT_STAGE_OFFSET.y + 1.45, PORTRAIT_STAGE_OFFSET.z),
                 Vec3::Y,
             ),
-        PORTRAIT_RENDER_LAYER,
+        portrait_camera_view_layers(),
     ));
 }
 

@@ -19,7 +19,8 @@ use super::lifecycle_probe::{
 };
 use super::pipeline::{
     UnitPortraitCaptureState, UnitPortraitUiDemand, drive_portrait_capture_pipeline,
-    maintain_portrait_cache_requests, sync_portrait_capture_camera, update_portrait_actor_framing,
+    maintain_portrait_cache_requests, suspend_portrait_capture_for_lifecycle_probe,
+    sync_portrait_capture_camera, update_portrait_actor_framing,
 };
 use super::studio::{
     propagate_portrait_render_layers, setup_unit_portrait_studio, sync_portrait_camera_active,
@@ -78,6 +79,7 @@ impl Plugin for UnitPortraitPlugin {
                     finalize_skinned_equipment_overlays,
                     update_portrait_actor_framing,
                     sync_portrait_capture_camera,
+                    suspend_portrait_capture_for_lifecycle_probe,
                     apply_portrait_lifecycle_probe,
                     propagate_portrait_render_layers,
                     drive_portrait_capture_pipeline,
