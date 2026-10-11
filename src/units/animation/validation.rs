@@ -404,6 +404,89 @@ mod tests {
         definition
     }
 
+    /// Pack-authoritative jaw bind pose on idle clips (open mouth is source behavior).
+    const BUFOMORPH_JAW_BIND_ROTATION: [f32; 4] = [
+        -0.8601013,
+        -0.5101233,
+        -2.66e-7,
+        7.29e-7,
+    ];
+
+    #[test]
+    #[cfg(feature = "dev")]
+    fn bufomorph_idle_look_around_jaw_pose_matches_pack_authoring() {
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/units/bufomorph.glb");
+        if !path.is_file() {
+            return;
+        }
+        let (document, buffers, _) = gltf::import(&path).expect("bufomorph glb");
+        let idle = document
+            .animations()
+            .find(|a| a.name() == Some("IdleLookAround"))
+            .expect("IdleLookAround");
+        let jaw_quat = bone_rotation_at_clip_time(
+            &document,
+            &buffers,
+            idle,
+            "Bufomorph_JawUpper",
+            0.0,
+        )
+        .expect("jaw rotation at t=0");
+        for (actual, expected) in jaw_quat.iter().zip(BUFOMORPH_JAW_BIND_ROTATION) {
+            assert!(
+                (*actual - expected).abs() < 2e-4,
+                "IdleLookAround jaw rotation should match faithful export of pack FBX, got {jaw_quat:?}"
+            );
+        }
+        let breathe = document
+            .animations()
+            .find(|a| a.name() == Some("IdleBreathe"))
+            .expect("IdleBreathe");
+        let breathe_jaw = bone_rotation_at_clip_time(
+            &document,
+            &buffers,
+            breathe,
+            "Bufomorph_JawUpper",
+            0.0,
+        )
+        .expect("IdleBreathe jaw");
+        assert!(
+            jaw_quat.iter().zip(breathe_jaw).all(|(a, b)| (*a - b).abs() < 1e-5),
+            "IdleLookAround and IdleBreathe share the same authored jaw bind pose"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "dev")]
+    fn bufomorph_bite_attack_preserves_authored_body_motion() {
+        use std::path::PathBuf;
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets/units/bufomorph.glb");
+        if !path.is_file() {
+            return;
+        }
+        let (document, buffers, _) = gltf::import(&path).expect("bufomorph glb");
+        let bite = document
+            .animations()
+            .find(|a| a.name() == Some("BiteAttack"))
+            .expect("BiteAttack");
+        let body_trans = bone_translation_at_clip_time(
+            &document,
+            &buffers,
+            bite,
+            "Bufomorph_",
+            0.35,
+        )
+        .expect("Bufomorph_ translation mid-clip");
+        let magnitude = (body_trans[0].powi(2) + body_trans[1].powi(2) + body_trans[2].powi(2)).sqrt();
+        assert!(
+            magnitude > 20.0,
+            "BiteAttack must retain pack hip/root motion on Bufomorph_ (got {body_trans:?}, |v|={magnitude})"
+        );
+    }
+
     #[test]
     #[cfg(feature = "dev")]
     fn bufomorph_pack_asset_includes_idle_breathe_clip() {
@@ -501,6 +584,86 @@ mod tests {
         } else {
             None
         }
+    }
+
+    fn bone_rotation_at_clip_time(
+        document: &gltf::Document,
+        buffers: &[gltf::buffer::Data],
+        animation: gltf::Animation,
+        bone_name: &str,
+        time_s: f32,
+    ) -> Option<[f32; 4]> {
+        let bone = document.nodes().find(|n| n.name() == Some(bone_name))?;
+        let bone_index = bone.index();
+        let channel = animation.channels().find(|c| {
+            c.target().node().index() == bone_index
+                && c.target().property() == gltf::animation::Property::Rotation
+        })?;
+        sample_vec4_channel_at_time(buffers, channel, time_s)
+    }
+
+    fn bone_translation_at_clip_time(
+        document: &gltf::Document,
+        buffers: &[gltf::buffer::Data],
+        animation: gltf::Animation,
+        bone_name: &str,
+        time_s: f32,
+    ) -> Option<[f32; 3]> {
+        let bone = document.nodes().find(|n| n.name() == Some(bone_name))?;
+        let bone_index = bone.index();
+        let channel = animation.channels().find(|c| {
+            c.target().node().index() == bone_index
+                && c.target().property() == gltf::animation::Property::Translation
+        })?;
+        sample_vec3_channel_at_time(buffers, channel, time_s)
+    }
+
+    fn sample_vec4_channel_at_time(
+        buffers: &[gltf::buffer::Data],
+        channel: gltf::animation::Channel,
+        time_s: f32,
+    ) -> Option<[f32; 4]> {
+        use gltf::animation::util::ReadOutputs;
+        use gltf::animation::util::Rotations;
+        let reader = channel.reader(|buffer| Some(&buffers[buffer.index()].0));
+        let inputs: Vec<f32> = reader.read_inputs()?.collect();
+        let outputs = reader.read_outputs()?;
+        let values: Vec<[f32; 4]> = match outputs {
+            ReadOutputs::Rotations(Rotations::F32(iter)) => iter.collect(),
+            _ => return None,
+        };
+        let idx = nearest_keyframe_index(&inputs, time_s)?;
+        values.get(idx).copied()
+    }
+
+    fn sample_vec3_channel_at_time(
+        buffers: &[gltf::buffer::Data],
+        channel: gltf::animation::Channel,
+        time_s: f32,
+    ) -> Option<[f32; 3]> {
+        use gltf::animation::util::ReadOutputs;
+        let reader = channel.reader(|buffer| Some(&buffers[buffer.index()].0));
+        let inputs: Vec<f32> = reader.read_inputs()?.collect();
+        let outputs = reader.read_outputs()?;
+        let values: Vec<[f32; 3]> = match outputs {
+            ReadOutputs::Translations(iter) => iter.collect(),
+            _ => return None,
+        };
+        let idx = nearest_keyframe_index(&inputs, time_s)?;
+        values.get(idx).copied()
+    }
+
+    fn nearest_keyframe_index(inputs: &[f32], time_s: f32) -> Option<usize> {
+        inputs
+            .iter()
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                (*a - time_s)
+                    .abs()
+                    .partial_cmp(&(*b - time_s).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
     }
 
     fn idle_jaw_track_end_seconds(

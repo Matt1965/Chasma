@@ -16,8 +16,10 @@ Outer rotation `(0, 90, 0)` degrees on wrapper only — `diagnostics/bufomorph/r
 | PNG | Source |
 |-----|--------|
 | `source_pack_IdleBreathe_t0.png` | Pack FBX `IdleBreathe` @ 0s |
+| `source_pack_IdleLookAround_t0.png` | Pack FBX `IdleLookAround` @ 0s (in-game idle) |
 | `source_pack_BiteAttack_t0.35.png` | Pack FBX `BiteAttack` @ 0.35s |
 | `checkpoint_03_faithful_IdleBreathe_t0.00.png` | Faithful GLB idle |
+| `checkpoint_03_faithful_IdleLookAround_t0.00.png` | Faithful GLB `IdleLookAround` @ 0s |
 | `checkpoint_03_faithful_BiteAttack_t0.35.png` | Faithful GLB bite |
 | `previous_shipped_*` | Workaround GLB (not source) |
 
