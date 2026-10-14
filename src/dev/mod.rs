@@ -2,6 +2,7 @@
 
 mod animation_focus;
 mod archetype_editor;
+mod brain;
 mod build_identity;
 mod animation_panel;
 mod catalog;
@@ -53,13 +54,17 @@ pub use catalog_cache::{
 };
 pub use build_identity::DevBuildIdentity;
 pub use debug_controls::{apply_dev_debug_flags, dev_flags_from_overlay, sync_dev_debug_controls};
+pub use brain::{
+    BrainDecisionHistory, BrainWindowState, handle_brain_window_input, setup_brain_window_panel,
+    sync_brain_window, tick_brain_decision_history,
+};
 pub use debug_window::{
     handle_debug_toggle_buttons, setup_debug_window_panel, sync_debug_panel_button_styles,
     sync_debug_panel_content,
 };
 pub use dev_mode::{
     DefinitionId, DevDebugFlags, DevInventoryEndpoint, DevInventoryToolState, DevModeInputGate,
-    DevModeState, DevTab, DevTextFieldFocus, SpawnMode,
+    DevModeState, DevSpawnController, DevTab, DevTextFieldFocus, SpawnMode,
 };
 pub use fields_window::{setup_fields_window_panel, sync_dev_fields_panel_visibility};
 pub use origin_editor::{
@@ -225,7 +230,10 @@ impl Plugin for DevModePlugin {
             .init_resource::<gizmo::TransformEditState>()
             .init_resource::<DevPanelHoverState>()
             .init_resource::<tools::DevPlacementPreview>()
-            .init_resource::<tools::DevPlacementPreviewScratch>()
+            .init_resource::<tools::DevPlacementPreviewScratch>();
+        tools::init_placement_model_preview(app);
+        app.init_resource::<BrainWindowState>()
+            .init_resource::<BrainDecisionHistory>()
             .init_resource::<DevPreviewAnchor>()
             .init_resource::<scenes::DevSceneRegistry>()
             .init_resource::<settlement_placement::SettlementPlacementPreview>()
@@ -246,6 +254,7 @@ impl Plugin for DevModePlugin {
                     setup_selected_object_panel,
                     setup_navigation_editor_panel,
                     setup_debug_window_panel,
+                    setup_brain_window_panel,
                     setup_world_window_panel,
                     setup_settlement_window_panel,
                     setup_fields_window_panel,
@@ -303,7 +312,6 @@ impl Plugin for DevModePlugin {
                     tick_dev_search_debounce,
                     sync_catalog_browse_index,
                     update_dev_window_interaction_state,
-                    sync_dev_panel_hover_from_windows,
                     handle_dev_window_pointer,
                     focus_dev_window_on_ui_press,
                     focus_dev_window_on_panel_press,
@@ -357,6 +365,24 @@ impl Plugin for DevModePlugin {
                     .chain(),
             )
                 .chain()
+                .in_set(DevModeInputSystems),
+        )
+        .add_systems(
+            Update,
+            (
+                window::refresh_dev_window_pointer_capture,
+                window::sync_dev_panel_hover_from_windows,
+            )
+                .chain()
+                .after(window::sync_dev_window_computed_sizes)
+                .in_set(DevModeInputSystems),
+        )
+        .add_systems(
+            Update,
+            (
+                sync_brain_window.after(sync_debug_panel_content),
+                tick_brain_decision_history,
+            )
                 .in_set(DevModeInputSystems),
         )
         .add_systems(
@@ -464,6 +490,7 @@ impl Plugin for DevModePlugin {
         .add_systems(
             Update,
             (
+                catalog::faction_picker::handle_spawn_faction_picker_scroll_wheel,
                 catalog::scroll::handle_catalog_list_scroll_wheel,
                 catalog::scroll::handle_catalog_list_scrollbar_track_click,
             )
@@ -471,10 +498,18 @@ impl Plugin for DevModePlugin {
         )
         .add_systems(
             Update,
+            catalog::faction_picker::sync_spawn_faction_picker
+                .after(sync_dev_catalog_chrome)
+                .in_set(DevModeInputSystems),
+        )
+        .add_systems(
+            Update,
             (
                 handle_dev_panel_ui_interaction,
+                catalog::faction_picker::handle_spawn_faction_picker,
                 handle_save_window_interaction,
                 handle_debug_toggle_buttons,
+                handle_brain_window_input,
                 world_environment::handle_world_environment_actions,
                 world_environment::handle_world_cycle_toggles,
                 world_environment::handle_world_time_presets,
@@ -615,6 +650,8 @@ impl Plugin for DevModePlugin {
             Update,
             handle_dev_spawn_click
                 .after(sync_save_window_content)
+                .after(window::apply_dev_window_input_gate)
+                .after(window::sync_dev_panel_hover_from_windows)
                 .in_set(DevModeInputSystems),
         )
         .add_systems(
@@ -627,7 +664,7 @@ impl Plugin for DevModePlugin {
         .add_systems(
             Update,
             apply_dev_window_input_gate
-                .after(handle_dev_window_pointer)
+                .after(window::sync_dev_panel_hover_from_windows)
                 .before(sync_dev_gameplay_input_block)
                 .in_set(DevModeInputSystems),
         )
@@ -668,6 +705,11 @@ impl Plugin for DevModePlugin {
                 inventory_tools::sync_dev_held_item_world_ghost,
             )
                 .chain()
+                .in_set(DevModePresentationSystems),
+        )
+        .add_systems(
+            Update,
+            tools::preview_model::sync_dev_placement_model_previews
                 .in_set(DevModePresentationSystems),
         );
     }

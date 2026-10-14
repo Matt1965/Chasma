@@ -1,64 +1,49 @@
-# Monster pack import (Unity FBX -> Chasma GLB)
+# Monster pack GLB import
 
-External source (not in repo):
+**Policy:** `AGENTS.md` (Imported asset fidelity) and `IMPORT_FIDELITY.md`.
 
-`C:\Users\matt1\My project\Assets\Monsters Full Pack Vol 1`
-
-## Steps
-
-1. **Inventory** (read-only scan of source tree):
-
-   ```text
-   py -3 tools/monster_pack/inventory_source_pack.py
-   ```
-
-   Writes `tools/monster_pack/inventory.json` (29 monsters; excludes Cavecrawler).
-
-2. **Batch export** (requires Blender 4.x):
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File tools/monster_pack/run_batch_export.ps1 `
-     -BlenderExe "C:\BevyFiles\Temp\blender-4.2.3\blender-4.2.3-windows-x64\blender.exe"
-   ```
-
-   Output: `assets/units/<render_key>.glb` and `tools/monster_pack/import_manifest.json`.
-
-   Per-monster logs: `C:\BevyFiles\Temp\monster-pack-convert\<render_key>.log`
-
-3. **List GLB clips** (for animation profile authoring):
-
-   ```text
-   py -3 tools/monster_pack/glb_clips.py assets/units/tyranopode.glb
-   ```
-
-4. **Workbook integration**:
-
-   ```text
-   py -3 tools/integrate_monster_pack_workbook.py
-   ```
-
-   Backup: `Chasma Design.xlsx.monster_pack.bak`
-
-5. **Validate**:
-
-   ```text
-   cargo check --features dev
-   cargo test --features dev --lib data_import
-   ```
-
-## Single monster (debug)
+## Faithful export (Bufomorph and pack creatures)
 
 ```text
-blender --background --python tools/monster_pack/blender_export_monster.py -- ^
-  --source-dir "<monster folder>" ^
-  --monster-name Tyranopode ^
-  --anim-prefix Tyranopode ^
-  --sk-fbx "<path to SK_*.FBX>" ^
-  --output assets/units/tyranopode.glb
+cd C:\BevyFiles\chasma\tools\monster_pack
+$env:CHASMA_BLENDER_EXE = "C:\BevyFiles\Temp\blender-4.2.3\blender-4.2.3-windows-x64\blender.exe"
+.\run_bufomorph_diagnostics.ps1
 ```
 
-Use `animation_prefix` and `sk_fbx` from `inventory.json` when names differ from the folder name.
+Or single export:
 
-## Known limits
+```text
+blender --background --python blender_export_monster.py -- ^
+  --source-dir "<pack monster folder>" ^
+  --monster-name Bufomorph ^
+  --anim-prefix Buformorph ^
+  --sk-fbx "<path>\SK_Buformorph.FBX" ^
+  --output "C:\BevyFiles\chasma\assets\units\bufomorph.glb"
+```
 
-Some pack `SK_*.FBX` meshes fail Blender's FBX importer (`mesh.armature_setup` KeyError). Those monsters are skipped by the batch script; see `docs/monster-pack-import-manifest.md` for status.
+Post-export **diagnostics only** (does not modify the GLB):
+
+```text
+py -3 glb_fbx2gltf_scene_fix.py ..\..\assets\units\bufomorph.glb
+py -3 validate_skin_deform.py ..\..\assets\units\bufomorph.glb
+```
+
+Do **not** run the removed `fix_bufomorph_glb` orientation/tongue/locomotion strip pass.
+
+## Runtime presentation
+
+Units sheet rotation correction and `ModelComposition` offsets (ADR-128). Ground contact uses catalog/model offset, not GLB scene sink hacks.
+
+## Legacy channel stripping
+
+For pipelines with documented erroneous child translation keys (e.g. tyranopode audit):
+
+```text
+py -3 glb_sanitize_animations.py path.glb --strip-child-channels
+```
+
+Default monster export does **not** enable this.
+
+## Diagnostics vs shipped assets
+
+Checkpoints and PNG renders live under `tools/monster_pack/diagnostics/` (gitignored GLBs). Shipped game assets are only under `assets/units/`.

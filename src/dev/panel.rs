@@ -221,9 +221,9 @@ fn contextual_placement_buttons() -> Vec<(
             PlacementControlField::GridRows,
         ),
         (
-            "Team: Player",
-            DevContextualPlacementAction::CycleSpawnTeam,
-            PlacementControlField::Affiliation,
+            "Controller: Player",
+            DevContextualPlacementAction::CycleSpawnController,
+            PlacementControlField::SpawnController,
         ),
         (
             "Yaw +",
@@ -858,6 +858,11 @@ pub(crate) fn setup_dev_panel(mut commands: Commands, bodies: Query<(Entity, &De
                                     },
                                     TextColor(Color::srgba(0.88, 0.94, 0.98, 1.0)),
                                 ));
+                                if field == super::catalog::PlacementControlField::SpawnController {
+                                    super::catalog::faction_picker::spawn_spawn_faction_picker(
+                                        placement,
+                                    );
+                                }
                             }
                         });
                 });
@@ -1483,6 +1488,7 @@ pub(crate) fn handle_dev_panel_ui_interaction(
             gate.block_gameplay_mouse = true;
             panel_click_without_search = true;
             dev_state.active_tab = button.tab;
+            dev_state.catalog.close_faction_picker();
             dev_state.list_scroll = 0;
             dev_state.archetype_list_scroll = 0;
             if !dev_state.shows_archetype_pane() {
@@ -1619,8 +1625,8 @@ fn apply_contextual_placement_action(
         DevContextualPlacementAction::GridRowsDown => {
             state.brush.grid_rows = state.brush.grid_rows.saturating_sub(1).max(1);
         }
-        DevContextualPlacementAction::CycleSpawnTeam => {
-            state.cycle_spawn_affiliation();
+        DevContextualPlacementAction::CycleSpawnController => {
+            state.cycle_spawn_controller();
         }
         DevContextualPlacementAction::RotationUp => {
             state.placement_yaw_deg = (state.placement_yaw_deg + 5.0) % 360.0;

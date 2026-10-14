@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Blender batch export: Unity monster FBX pack -> single skinned GLB.
 
@@ -11,7 +12,6 @@ Run headless:
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -19,13 +19,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
-import bpy
-
-from unity_materials import apply_textures_to_meshes
-
-# Unity FBX centimeters -> glTF meters (matches Cavecrawler conversion notes).
-FBX_SCALE = 0.01
-FPS = 30
+from monster_export_core import export_monster_glb  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -41,185 +35,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sk-fbx", type=Path, default=None)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--include-rm-clips", action="store_true", default=True)
+    parser.add_argument("--no-rm-clips", action="store_true")
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=None,
+        help="Write export checkpoints (see run_bufomorph_diagnostics.ps1).",
+    )
     return parser.parse_args(argv)
-
-
-def clear_scene() -> None:
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.object.delete()
-    for action in list(bpy.data.actions):
-        bpy.data.actions.remove(action)
-
-
-def import_fbx(path: Path) -> list[bpy.types.Object]:
-    bpy.ops.import_scene.fbx(
-        filepath=str(path),
-        global_scale=FBX_SCALE,
-        automatic_bone_orientation=False,
-        use_anim=True,
-        ignore_leaf_bones=True,
-        force_connect_children=False,
-    )
-    return list(bpy.context.selected_objects)
-
-
-def find_armature(objects: list[bpy.types.Object]) -> bpy.types.Object | None:
-    for obj in objects:
-        if obj.type == "ARMATURE":
-            return obj
-    for obj in bpy.data.objects:
-        if obj.type == "ARMATURE":
-            return obj
-    return None
-
-
-def clip_name_from_fbx(monster: str, fbx_name: str) -> str:
-    base = Path(fbx_name).stem
-    prefix = f"{monster}@"
-    if base.startswith(prefix):
-        return base[len(prefix) :]
-    if "@" in base:
-        return base.split("@", 1)[1]
-    return base
-
-
-def merge_action_onto_armature(armature: bpy.types.Object, action: bpy.types.Action, name: str) -> None:
-    action.name = name
-    if armature.animation_data is None:
-        armature.animation_data_create()
-    if armature.animation_data.action and armature.animation_data.action.name != name:
-        armature.animation_data.action = None
-    track = armature.animation_data.nla_tracks.new()
-    track.name = name
-    strip = track.strips.new(name, 0, action)
-    strip.action_frame_start = action.frame_range[0]
-    strip.action_frame_end = action.frame_range[1]
-
-
-def delete_objects(objects: list[bpy.types.Object]) -> None:
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in objects:
-        if obj and obj.name in bpy.data.objects:
-            obj.select_set(True)
-    bpy.ops.object.delete()
-
-
-def downscale_textures(max_dim: int = 2048) -> None:
-    """Keep GLBs under GitHub size limits; Chasma does not use Draco mesh compression."""
-    for image in bpy.data.images:
-        if image.size[0] == 0 or image.size[1] == 0:
-            continue
-        w, h = image.size[0], image.size[1]
-        if w <= max_dim and h <= max_dim:
-            continue
-        scale = max_dim / float(max(w, h))
-        image.scale(int(w * scale), int(h * scale))
-
-
-def limit_skin_weights(max_influences: int = 4) -> None:
-    for obj in bpy.data.objects:
-        if obj.type != "MESH" or not obj.data.vertices:
-            continue
-        mesh = obj.data
-        for vert in mesh.vertices:
-            weights = list(vert.groups)
-            if len(weights) <= max_influences:
-                continue
-            weights.sort(key=lambda g: g.weight, reverse=True)
-            keep = weights[:max_influences]
-            total = sum(g.weight for g in keep) or 1.0
-            for g in vert.groups:
-                g.weight = 0.0
-            for g in keep:
-                g.weight = g.weight / total
-
-
-def collect_armature_meshes(armature: bpy.types.Object) -> list[bpy.types.Object]:
-    meshes: list[bpy.types.Object] = []
-    stack = list(armature.children)
-    while stack:
-        obj = stack.pop()
-        if obj.type == "MESH":
-            meshes.append(obj)
-        stack.extend(obj.children)
-    return meshes
-
-
-def normalize_skeleton_before_animations(armature: bpy.types.Object, target_height_m: float = 3.0) -> None:
-    """Bake FBX import scale into the rest pose before merging animation FBXs.
-
-    Animations must target the final bind pose. Rescaling after merge causes skinning explosions.
-    """
-    meshes = collect_armature_meshes(armature)
-    if any(abs(component - 1.0) > 0.001 for component in armature.scale):
-        bake_object_scales(armature)
-    if not meshes:
-        return
-    max_dim = max(max(mesh.dimensions) for mesh in meshes)
-    if max_dim >= 0.5:
-        return
-    factor = target_height_m / max(max_dim, 1e-6)
-    armature.scale = (factor, factor, factor)
-    bpy.context.view_layer.update()
-    bake_object_scales(armature)
-
-
-def bake_object_scales(armature: bpy.types.Object) -> None:
-    """FBX import often leaves 0.01 armature scale; baking avoids 1e-4 glTF root scale."""
-    targets = [armature, *collect_armature_meshes(armature)]
-    bpy.ops.object.select_all(action="DESELECT")
-    for obj in targets:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = armature
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-
-
-def purge_stray_actions(armature: bpy.types.Object) -> None:
-    if armature.animation_data:
-        for track in list(armature.animation_data.nla_tracks):
-            if "|" in track.name or "Take 001" in track.name:
-                armature.animation_data.nla_tracks.remove(track)
-        armature.animation_data.action = None
-    for action in list(bpy.data.actions):
-        if "|" in action.name or "Take 001" in action.name:
-            bpy.data.actions.remove(action)
-
-
-def keep_only_nla_actions(armature: bpy.types.Object) -> None:
-    allowed: set[str] = set()
-    if armature.animation_data:
-        for track in armature.animation_data.nla_tracks:
-            for strip in track.strips:
-                if strip.action:
-                    allowed.add(strip.action.name)
-    for action in list(bpy.data.actions):
-        if action.name not in allowed:
-            bpy.data.actions.remove(action)
-
-
-def export_glb(output: Path, armature: bpy.types.Object) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    bpy.ops.object.select_all(action="DESELECT")
-    armature.select_set(True)
-    bpy.context.view_layer.objects.active = armature
-    for mesh in collect_armature_meshes(armature):
-        mesh.select_set(True)
-    bpy.ops.export_scene.gltf(
-        filepath=str(output),
-        export_format="GLB",
-        use_selection=True,
-        export_apply=False,
-        export_animations=True,
-        export_skins=True,
-        export_all_influences=False,
-        export_def_bones=False,
-        export_materials="EXPORT",
-        export_texcoords=True,
-        export_normals=True,
-        export_tangents=True,
-        export_image_format="AUTO",
-        export_yup=True,
-    )
 
 
 def main() -> None:
@@ -240,51 +63,21 @@ def main() -> None:
         sk_path = sk_candidates[0]
 
     anim_prefix = args.anim_prefix or args.monster_name
+    include_rm = args.include_rm_clips and not args.no_rm_clips
 
-    clear_scene()
-    base_objs = import_fbx(sk_path)
-    armature = find_armature(base_objs)
-    if armature is None:
-        raise SystemExit("No armature in SK FBX")
-
-    normalize_skeleton_before_animations(armature)
-    purge_stray_actions(armature)
-    for action in list(bpy.data.actions):
-        bpy.data.actions.remove(action)
-
-    anim_paths = sorted(p for p in fbx_dir.glob(f"{anim_prefix}@*.FBX") if p != sk_path)
-    anim_paths += sorted(p for p in fbx_dir.glob(f"{anim_prefix}@*.fbx") if p != sk_path)
-
-    for anim_path in anim_paths:
-        clip = clip_name_from_fbx(anim_prefix, anim_path.name)
-        if not args.include_rm_clips and clip.endswith("_RM"):
-            continue
-        imported = import_fbx(anim_path)
-        action = None
-        for obj in imported:
-            if obj.type == "ARMATURE" and obj.animation_data and obj.animation_data.action:
-                action = obj.animation_data.action
-                break
-        if action is None:
-            for action_candidate in bpy.data.actions:
-                if action_candidate.users == 1:
-                    action = action_candidate
-                    break
-        if action is None:
-            delete_objects(imported)
-            continue
-        merge_action_onto_armature(armature, action, clip)
-        delete_objects(imported)
-
-    purge_stray_actions(armature)
-    keep_only_nla_actions(armature)
-    mat_name = f"M_{args.monster_name.replace(' ', '')}"
-    apply_textures_to_meshes(args.source_dir, mat_name)
-    limit_skin_weights(4)
-    downscale_textures(1024)
-    bpy.context.scene.render.fps = FPS
-    export_glb(args.output, armature)
-    print(f"Exported {args.output}")
+    merged, removed, kept, rebased = export_monster_glb(
+        source_dir=args.source_dir,
+        monster_name=args.monster_name,
+        output=args.output,
+        anim_prefix=anim_prefix,
+        sk_fbx=sk_path,
+        include_rm_clips=include_rm,
+        checkpoint_dir=args.checkpoint_dir,
+    )
+    print(
+        f"Exported {args.output}: {merged} clips "
+        f"(stripped {removed} anim channels, kept {kept}, rebased {rebased} clips)"
+    )
 
 
 if __name__ == "__main__":

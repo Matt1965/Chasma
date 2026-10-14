@@ -6,7 +6,8 @@ use bevy::prelude::*;
 
 use super::id::DevWindowId;
 use super::math::{
-    DEFAULT_PANEL_WIDTH_PX, default_catalog_position, default_debug_position,
+    DEFAULT_PANEL_WIDTH_PX, brain_panel_width, default_brain_position, default_catalog_position,
+    default_debug_position,
     default_fields_position, default_navigation_editor_position, default_origin_editor_position,
     default_roads_position,
     default_save_position,
@@ -29,6 +30,7 @@ impl DevWindowSessionState {
     pub fn new_default(id: DevWindowId, viewport: Vec2) -> Self {
         let width = match id {
             DevWindowId::NavigationEditor => navigation_editor_panel_width(viewport),
+            DevWindowId::Brain => brain_panel_width(viewport),
             _ => DEFAULT_PANEL_WIDTH_PX,
         };
         let position = match id {
@@ -37,6 +39,7 @@ impl DevWindowSessionState {
             DevWindowId::SelectedObject => default_selected_object_position(viewport, width),
             DevWindowId::NavigationEditor => default_navigation_editor_position(viewport, width),
             DevWindowId::Debug => default_debug_position(viewport, width),
+            DevWindowId::Brain => default_brain_position(viewport, width),
             DevWindowId::World => default_world_position(viewport, width),
             DevWindowId::Settlement => default_settlement_position(viewport, width),
             DevWindowId::Fields => default_fields_position(viewport, width),
@@ -99,6 +102,10 @@ impl Default for DevWindowRegistry {
             DevWindowSessionState::new_default(DevWindowId::Debug, viewport),
         );
         windows.insert(
+            DevWindowId::Brain,
+            DevWindowSessionState::new_default(DevWindowId::Brain, viewport),
+        );
+        windows.insert(
             DevWindowId::World,
             DevWindowSessionState::new_default(DevWindowId::World, viewport),
         );
@@ -126,6 +133,7 @@ impl Default for DevWindowRegistry {
                 DevWindowId::SelectedObject,
                 DevWindowId::NavigationEditor,
                 DevWindowId::Debug,
+                DevWindowId::Brain,
                 DevWindowId::World,
                 DevWindowId::Settlement,
                 DevWindowId::Fields,
@@ -236,11 +244,16 @@ pub struct DevWindowInteractionState {
     pub any_window_hovered: bool,
     pub launcher_hovered: bool,
     pub dragging: bool,
+    /// Cursor inside a visible window or launcher rectangle (not only interactive widgets).
+    pub pointer_inside_window_bounds: bool,
 }
 
 impl DevWindowInteractionState {
     pub fn blocks_world_mouse(self) -> bool {
-        self.any_window_hovered || self.launcher_hovered || self.dragging
+        self.any_window_hovered
+            || self.launcher_hovered
+            || self.dragging
+            || self.pointer_inside_window_bounds
     }
 
     pub fn blocks_camera(self) -> bool {
@@ -324,6 +337,15 @@ mod tests {
         };
         assert!(state.blocks_world_mouse());
         assert!(!state.blocks_camera());
+    }
+
+    #[test]
+    fn window_rect_capture_blocks_without_widget_hover() {
+        let state = DevWindowInteractionState {
+            pointer_inside_window_bounds: true,
+            ..Default::default()
+        };
+        assert!(state.blocks_world_mouse());
     }
 
     #[test]
