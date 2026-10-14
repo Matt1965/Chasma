@@ -9,7 +9,11 @@ Policy: see **Imported asset fidelity** in `AGENTS.md`.
 > already-upright model. Evidence, target process and implementation map:
 > `diagnostics/bufomorph/INDEPENDENT_REVIEW.md`. Prototype tools: `experimental/`.
 
-## Faithful export path (default)
+## Option B export path (pilot — Bufomorph, Muscomorph)
+
+See `OPTION_B_PILOT.md`. Production entry: `export_monster_fbx2gltf.py`.
+
+## Legacy Blender merge path (batch recovery until pilot sign-off)
 
 1. **Blender merge** — `monster_export_core.export_monster_glb`: import SK + per-clip FBX, merge actions, texture bind, `export_scene.gltf` (GLB).
 2. **No Blender fcurve stripping** unless `--strip-child-channels` (legacy pipelines only).

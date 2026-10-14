@@ -180,11 +180,15 @@ fn log_unit_animation_runtime_identity(
         .get(&definition.default_weapon_id)
         .map(|w| w.animation_key.trim().to_string())
         .unwrap_or_else(|| "<no default weapon>".to_string());
+    let workbook = crate::data_import::dev_design_workbook_path();
+    let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     info!(
-        "unit animation identity: unit `{}` glb `{}` bytes={len} fnv1a64={hash:016x} profile `{}` idle `{idle}` split_bone `{split}` attack_clip `{attack}`",
+        "unit animation identity: unit `{}` glb `{}` bytes={len} fnv1a64={hash:016x} profile `{}` idle `{idle}` split_bone `{split}` attack_clip `{attack}` workbook `{}` manifest_dir `{}`",
         definition.id.as_str(),
         disk_path.display(),
         profile.id.as_str(),
+        workbook.display(),
+        manifest_dir.display(),
     );
 }
 
