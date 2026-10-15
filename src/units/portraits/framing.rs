@@ -109,6 +109,7 @@ pub fn count_actor_portrait_layer_drawables(
         }
         let on_portrait = render_layers
             .get(entity)
+            .ok()
             .is_some_and(|layers| layers.intersects(&PORTRAIT_RENDER_LAYER));
         if on_portrait {
             count += 1;
