@@ -1,10 +1,12 @@
 //! Head-and-shoulders camera framing for portrait capture.
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::math::{Affine3A, Vec3A};
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
 
+use crate::camera::render_layers::PORTRAIT_RENDER_LAYER;
 use crate::world::asset_sizing::unit_visual_scale;
 use crate::world::{UnitDefinition, UnitDefinitionId};
 
@@ -86,6 +88,29 @@ pub fn count_actor_render_primitives(
     let mut count = 0u32;
     for entity in descendants(root, children) {
         if mesh3d.get(entity).is_ok() || skinned.get(entity).is_ok() {
+            count += 1;
+        }
+    }
+    count
+}
+
+/// Drawables assigned to [`PORTRAIT_RENDER_LAYER`] (excludes default layer-0 glTF before propagation).
+pub fn count_actor_portrait_layer_drawables(
+    root: Entity,
+    children: &Query<&Children>,
+    mesh3d: &Query<&Mesh3d>,
+    skinned: &Query<&SkinnedMesh>,
+    render_layers: &Query<&RenderLayers>,
+) -> u32 {
+    let mut count = 0u32;
+    for entity in descendants(root, children) {
+        if mesh3d.get(entity).is_err() && skinned.get(entity).is_err() {
+            continue;
+        }
+        let on_portrait = render_layers
+            .get(entity)
+            .is_some_and(|layers| layers.intersects(&PORTRAIT_RENDER_LAYER));
+        if on_portrait {
             count += 1;
         }
     }

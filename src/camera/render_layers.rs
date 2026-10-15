@@ -10,8 +10,3 @@ pub const PREVIEW_RENDER_LAYER: RenderLayers = RenderLayers::layer(1);
 
 /// Gameplay HUD unit portrait capture stage (isolated from world and editor preview).
 pub const PORTRAIT_RENDER_LAYER: RenderLayers = RenderLayers::layer(2);
-
-/// Portrait camera must see layer 0 (fresh glTF instances) and layer 2 (staged studio).
-pub fn portrait_camera_view_layers() -> RenderLayers {
-    RenderLayers::from_layers(&[0, 2])
-}

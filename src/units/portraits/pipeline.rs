@@ -29,9 +29,9 @@ use super::lifecycle_probe::{
     portrait_lifecycle_blocks_production, note_production_finish_capture,
 };
 use super::framing::{
-    PORTRAIT_UNIT_YAW, count_actor_render_primitives, measure_actor_bounds,
-    portrait_camera_transform, portrait_fallback_body_height, portrait_framing_from_bounds,
-    portrait_generous_framing_from_bounds,
+    PORTRAIT_UNIT_YAW, count_actor_portrait_layer_drawables, count_actor_render_primitives,
+    measure_actor_bounds, portrait_camera_transform, portrait_fallback_body_height,
+    portrait_framing_from_bounds, portrait_generous_framing_from_bounds,
 };
 use super::resolve::{portrait_appearance_for_unit, portrait_render_key_str};
 use super::signature::portrait_signature_for_unit;
@@ -70,6 +70,7 @@ pub struct PortraitCaptureActorQueries<'w, 's> {
     pub children: Query<'w, 's, &'static Children>,
     pub mesh3d: Query<'w, 's, &'static Mesh3d>,
     pub skinned: Query<'w, 's, &'static SkinnedMesh>,
+    pub render_layers: Query<'w, 's, &'static RenderLayers>,
     pub global_transforms: Query<'w, 's, &'static GlobalTransform>,
     pub meshes: Res<'w, Assets<Mesh>>,
     pub equipment_visuals: Query<'w, 's, Entity, With<crate::units::equipment_presentation::UnitEquipmentVisual>>,
@@ -311,11 +312,12 @@ pub fn drive_portrait_capture_pipeline(
                 "portrait capture committed unit={:?} image={:?} primitives={}",
                 request.unit_id,
                 world_params.capture.target_image.as_ref().map(|h| h.id()),
-                count_actor_render_primitives(
+                count_actor_portrait_layer_drawables(
                     world_params.capture.actor_entity.unwrap(),
                     &queries.children,
                     &queries.mesh3d,
                     &queries.skinned,
+                    &queries.render_layers,
                 ),
             );
         }
@@ -390,6 +392,17 @@ pub fn drive_portrait_capture_pipeline(
         &queries.children,
         &queries.mesh3d,
         &queries.skinned,
+    ) == 0
+    {
+        return;
+    }
+
+    if count_actor_portrait_layer_drawables(
+        actor_entity,
+        &queries.children,
+        &queries.mesh3d,
+        &queries.skinned,
+        &queries.render_layers,
     ) == 0
     {
         return;
